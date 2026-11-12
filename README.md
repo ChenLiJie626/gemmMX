@@ -1,22 +1,46 @@
-# gemmMX — 沐曦 C500 GEMM 实现对比
+# C500 GEMM — Codex 实现
 
-矩阵乘加：`D = alpha * A * B + beta * C`（原地版本写回 C）。
+原生MACA `.cu`，实现 `D = alpha * A * B + beta * C`。
 
-约定 tile 顺序为 **N × M × K = 128 × 128 × 256**。实际 M、N 为128的倍数，K为256的倍数；FP16输入、FP32累加与输出。
+- **tile N×M×K = 128×128×256**：每个CTA计算128×128输出，256线程，wave2×2。
+- FP16 A/B，FP32 MMA累加与C/D；M/N为128的倍数，K为256的倍数。
+- A行主序；B默认列主序、K连续；`--row-b`提供行主序B转换入口，并另计转换+GEMM时间。
+- mode0–7：标量直接读取、标量BSM搬运、native BSM builtin、XOR布局、2/3/4-stage和寄存器预取流水线候选。
 
-本仓库通过两个独立分支保存实现，均从此公共基线分出：
+## 文件
 
-| 分支 | 内容 |
+| 文件 | 内容 |
 |---|---|
-| [claude](https://github.com/ChenLiJie626/gemmMX/tree/claude) | 用户提供的 Claude 实现：`gemm_c500.cu`、`mx_mma.h`、Makefile、原始说明 |
-| [codex](https://github.com/ChenLiJie626/gemmMX/tree/codex) | Codex 实现：native MMA/BSM、XOR布局、1–4 stage、寄存器预取候选、校验与计时脚本、逐段讲解 |
+| [c500_gemm.cu](c500_gemm.cu) | kernel、版本分发、FP64参考校验与GPU event基准 |
+| [README_逐段讲解.md](README_逐段讲解.md) | 对照源码[01]–[16]逐段解释、布局推导、流水线、性能指标与验收方法 |
+| [build.sh](build.sh) | MACA mxcc编译入口 |
+| [run_checks.sh](run_checks.sh) | 多尺寸与特殊输入正确性检查 |
+| [benchmark.sh](benchmark.sh) | 多尺寸、各版本基准 |
+| [validate_layout.mjs](validate_layout.mjs) | 主机端布局和stage生命周期数学模型 |
+| [验证状态.txt](验证状态.txt) | 已执行与未执行验证的边界 |
+| [NOTICE.md](NOTICE.md) | 公开native接口依据与来源说明 |
+
+## 使用
+
+在装有C500 MACA SDK的Linux环境运行：
 
 ```bash
-git clone https://github.com/ChenLiJie626/gemmMX.git
-cd gemmMX
-git switch claude  # 或 git switch codex
+export MACA_PATH=/opt/maca
+bash build.sh
+bash run_checks.sh
+bash benchmark.sh > benchmark.txt
+
+# M N K MODE REPEATS ALPHA BETA
+./c500_gemm 128 128 256 -1 20 1 1
+./c500_gemm 4096 4096 4096 4 50 1 0
 ```
 
-当前发布的是源码与实验候选，**两个版本均未在本次环境完成 MACA 编译、C500 数值验证或性能验收**。Codex分支的主机布局模型与shell语法检查已通过；这不能替代GPU测试。
+mode=-1运行全部版本；mode4为2-stage，mode5为3-stage。它们是待测候选，尚未选出真机最优配置。
 
-正确性通过后，再在相同数据布局、alpha/beta、尺寸及设备配置下比较延迟、TFLOPS、相对mcBLAS效率与dense FP16→FP32峰值利用率。具体构建方式和限制请阅读各分支说明。
+## 验证状态
+
+主机端布局数学模型与三个shell脚本语法检查通过。**当前环境没有MACA编译器或C500运行环境，尚未完成GPU编译、数值验证、bank conflict profiler分析或性能测量。** 主机模型通过不代表硬件builtin ABI和内存可见性已验证。
+
+正确性通过后，以延迟、`TFLOPS=2MNK/(t_ms*10^9)`和相对mcBLAS效率比较性能；峰值利用率的分母须对应本卡dense FP16→FP32规格。未提供任何虚构性能数据。
+
+用户提供的Claude实现独立保存在[claude分支](https://github.com/ChenLiJie626/gemmMX/tree/claude)。

@@ -1,0 +1,32 @@
+C500 GEMM 128x128x256 — 验证记录（2026-11-12）
+
+已执行：
+1. node validate_layout.mjs
+   PASS: BM=128, XOR=false，生产者地址双射、native MMA数学模型、输出唯一覆盖。
+   PASS: BM=128, XOR=true，同上。
+   PASS: stage=1..4，K=256/512/768/1024，环形缓冲区生命周期和边界。
+2. bash -n build.sh
+   PASS: shell语法。
+3. bash -n run_checks.sh
+   PASS: shell语法。
+4. bash -n benchmark.sh
+   PASS: shell语法。
+
+未执行：
+- mxcc编译、链接或反汇编。
+- C500运行与真实builtin ABI/同步可见性验证。
+- FP16输入、FP32 MMA输出的GPU数值精度检查。
+- bank conflict、寄存器、spill、occupancy和pipeline profiler分析。
+- 任何实测延迟、TFLOPS、峰值利用率或mcBLAS性能比较。
+
+原因：本机未检测到MACA编译器或C500执行环境。
+主机模型通过仅说明所建数学模型的坐标和槽位一致，不代表.cu已编译或真机验收。
+
+下一步在C500 Linux环境：
+  bash build.sh
+  bash run_checks.sh
+  bash benchmark.sh > benchmark.txt
+
+数据契约：FP16 A/B，FP32累加与C/D，D=alpha*A*B+beta*C。
+M/N正且为128的倍数，K正且为256的倍数；全部mode使用一个128x128输出CTA、256线程、wave2x2。
+默认A行主序，B列主序（K连续）；--row-b提供行主序B转换并计转换+计算时间。
