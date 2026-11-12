@@ -1,0 +1,9 @@
+gemm_c500
+c500_gemm
+*.o
+*.s
+*.ll
+*.bc
+*.zip
+benchmark.txt
+__pycache__/
