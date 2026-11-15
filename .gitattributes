@@ -6,3 +6,7 @@
 *.md text eol=lf
 *.txt text eol=lf
 Makefile text eol=lf
+*.cuh text eol=lf
+*.html text eol=lf
+*.pdf -text
+*.png -text

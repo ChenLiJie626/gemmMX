@@ -7,3 +7,8 @@ c500_gemm
 *.zip
 benchmark.txt
 __pycache__/
+mma_teach
+mma_teach_256
+tut
+tutorial_i8_256_v2
+tutorial_i8_256_v3
