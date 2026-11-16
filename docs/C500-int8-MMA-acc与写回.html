@@ -1,0 +1,923 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>acc 在哪，第四步要不要等</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+  /* 布局:单栏,交互块满宽,所有坐标与计数用等宽字体 */
+  :root {
+    --bg: #f7f8fa; --surface: #fff; --surface-2: #eceff4;
+    --fg: #16202c; --fg-dim: #556379; --fg-faint: #8694a7;
+    --line: #d6dce5; --accent: #0a6fb5; --accent-soft: #e3eff8;
+    --a-col: #0a6fb5; --b-col: #0f7a52; --c-col: #b5560a;
+    --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+    --sans: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0d1117; --surface: #151b24; --surface-2: #1e2631;
+      --fg: #e4eaf2; --fg-dim: #9babc0; --fg-faint: #67788d;
+      --line: #2b3643; --accent: #4caae8; --accent-soft: #15293a;
+      --a-col: #4caae8; --b-col: #43c494; --c-col: #e09243;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d1117; --surface: #151b24; --surface-2: #1e2631;
+    --fg: #e4eaf2; --fg-dim: #9babc0; --fg-faint: #67788d;
+    --line: #2b3643; --accent: #4caae8; --accent-soft: #15293a;
+    --a-col: #4caae8; --b-col: #43c494; --c-col: #e09243;
+    color-scheme: dark;
+  }
+
+  body {
+    background: var(--bg); color: var(--fg); font-family: var(--sans);
+    font-size: 15px; line-height: 1.68;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 0 72px;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; }
+
+  header { padding-block: 40px 26px; border-bottom: 1px solid var(--line); }
+  h1 { font-size: clamp(26px, 5vw, 38px); line-height: 1.14; margin: 0 0 14px;
+       font-weight: 700; letter-spacing: -0.02em; text-wrap: balance; }
+  .lede { font-size: 17px; color: var(--fg-dim); max-width: 60ch; margin: 0; }
+
+  section { padding-block: 36px 6px; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em;
+       color: var(--fg-faint); font-weight: 600; margin: 0 0 6px; font-family: var(--mono); }
+  h3 { font-size: 22px; margin: 0 0 15px; font-weight: 650; letter-spacing: -0.01em; text-wrap: balance; }
+  h4 { font-size: 15.5px; margin: 24px 0 9px; font-weight: 600; }
+  p { margin: 0 0 14px; max-width: 70ch; }
+  ul, ol { margin: 0 0 15px; padding-left: 21px; max-width: 70ch; }
+  li { margin-bottom: 6px; }
+  code { font-family: var(--mono); font-size: 0.89em; background: var(--surface-2);
+         padding: 1px 5px; border-radius: 4px; border: 1px solid var(--line); }
+  pre { font-family: var(--mono); font-size: 12.5px; line-height: 1.62;
+        background: var(--surface); border: 1px solid var(--line); border-radius: 7px;
+        padding: 14px 16px; overflow-x: auto; margin: 0 0 16px; }
+  pre code { background: none; border: none; padding: 0; font-size: inherit; }
+  .cmt { color: var(--fg-faint); }
+  .kw { color: var(--accent); }
+  strong { font-weight: 650; }
+
+  .panel { background: var(--surface); border: 1px solid var(--line);
+           border-radius: 9px; padding: 18px; margin: 0 0 18px; }
+
+  .note { border-left: 3px solid var(--accent); background: var(--accent-soft);
+          padding: 12px 15px; border-radius: 0 6px 6px 0; margin: 0 0 18px; font-size: 14.5px; }
+  .note p:last-child { margin-bottom: 0; }
+
+  /* ---- 16x16 网格 ---- */
+  .g16 { display: grid; grid-template-columns: repeat(16, 1fr); gap: 1.5px;
+         aspect-ratio: 1; }
+  .g16 > div { background: var(--surface-2); border-radius: 2px; transition: background .1s; }
+  .gA > div.on { background: var(--a-col); }
+  .gB > div.on { background: var(--b-col); }
+  .gC > div.on { background: var(--c-col); }
+  .gC > div.sel { outline: 2px solid var(--fg); outline-offset: 1px; z-index: 2; }
+
+  .frags { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+  .fb h5 { margin: 0 0 2px; font-size: 13px; font-weight: 600; font-family: var(--mono); }
+  .fb .sub { font-size: 11px; color: var(--fg-faint); margin: 0 0 8px;
+             font-family: var(--mono); line-height: 1.4; min-height: 2.8em; }
+  .fb.a h5 { color: var(--a-col); }
+  .fb.b h5 { color: var(--b-col); }
+  .fb.c h5 { color: var(--c-col); }
+  .axl { display: flex; justify-content: space-between; font-family: var(--mono);
+         font-size: 10px; color: var(--fg-faint); margin-top: 4px; }
+
+  /* ---- lane 选择 ---- */
+  .lanes { display: grid; grid-template-columns: repeat(16, 1fr); gap: 2px; }
+  .lanes button { font-family: var(--mono); font-size: 9.5px; padding: 3px 0; aspect-ratio: 1.6;
+    background: var(--surface-2); color: var(--fg-faint); border: 1px solid var(--line);
+    border-radius: 3px; cursor: pointer; line-height: 1; }
+  .lanes button:hover { color: var(--fg); }
+  .lanes button[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .lanes button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  .ctrls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
+  button.seg { font-family: var(--mono); font-size: 12px; padding: 5px 11px;
+    background: var(--surface-2); color: var(--fg-dim); border: 1px solid var(--line);
+    border-radius: 5px; cursor: pointer; }
+  button.seg:hover { color: var(--fg); border-color: var(--fg-faint); }
+  button.seg:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .readout { font-family: var(--mono); font-size: 12.5px; line-height: 1.8;
+    background: var(--surface-2); border: 1px solid var(--line);
+    border-radius: 7px; padding: 14px 16px; overflow-x: auto; }
+  .readout .k { color: var(--fg-faint); display: inline-block; min-width: 12ch; }
+  .readout .hi { color: var(--accent); font-weight: 600; }
+  .readout .ca { color: var(--a-col); font-weight: 600; }
+  .readout .cb { color: var(--b-col); font-weight: 600; }
+  .readout .cc { color: var(--c-col); font-weight: 600; }
+  .readout hr { border: none; border-top: 1px dashed var(--line); margin: 9px 0; }
+
+  .split { display: grid; grid-template-columns: minmax(0, 300px) minmax(0, 1fr); gap: 18px; align-items: start; }
+  @media (max-width: 680px) { .split { grid-template-columns: minmax(0, 1fr); } }
+
+  .tw { overflow-x: auto; margin: 0 0 18px; border: 1px solid var(--line); border-radius: 7px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { background: var(--surface-2); font-weight: 600; font-size: 11.5px;
+       text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-dim); }
+  tr:last-child td { border-bottom: none; }
+  td.n { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  /* ---- 搬运流程图 ---- */
+  .flow { display: grid; gap: 10px; font-family: var(--mono); font-size: 12px; }
+  .frow { display: grid; grid-template-columns: 7ch 1fr; gap: 12px; align-items: center; }
+  .frow .lbl { color: var(--fg-faint); text-align: right; }
+  .bar { display: flex; gap: 2px; }
+  .bar i { height: 22px; flex: 1; border-radius: 2px; display: grid; place-items: center;
+           font-size: 9.5px; color: #fff; font-style: normal; }
+  .arrow { text-align: center; color: var(--fg-faint); font-size: 11px; }
+
+  footer { margin-top: 42px; padding-top: 20px; border-top: 1px solid var(--line);
+           font-size: 13px; color: var(--fg-faint); }
+  .tag { display: inline-block; font-family: var(--mono); font-size: 10.5px;
+         padding: 2px 7px; border-radius: 4px; background: var(--surface-2);
+         border: 1px solid var(--line); color: var(--fg-dim); margin-right: 5px; }
+  .tag.v { background: var(--b-col); color: #fff; border-color: var(--b-col); }
+  /* ---- 手绘 SVG 图 ---- */
+  figure { margin: 0; }
+  figure svg { max-width: 100%; min-width: 420px; height: auto;
+               display: block; margin: 0 auto; }
+  figcaption { font-size: 13px; color: var(--fg-dim); margin-top: 12px;
+               line-height: 1.55; max-width: 70ch; }
+  .cmap { width: 100%; max-width: 340px; aspect-ratio: 1; display: block;
+           image-rendering: pixelated; border: 1px solid var(--line);
+           border-radius: 6px; cursor: crosshair; }
+  .fig-wrap { background: var(--surface); border: 1px solid var(--line);
+              border-radius: 9px; padding: 16px 18px; margin: 0 0 20px; overflow-x: auto; }
+</style>
+<style>
+@media print {
+  :root, :root[data-theme="light"] {
+    --bg: #fff; --surface: #fff; --surface-2: #f2f4f7;
+    --fg: #16202c; --fg-dim: #4a5869; --fg-faint: #78879a;
+    --line: #c7cfda; --accent: #0a6fb5; --accent-soft: #eaf2f9;
+    --a-col: #0a6fb5; --b-col: #0f7a52; --c-col: #b5560a;
+    color-scheme: light;
+  }
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  @page { size: A4; margin: 14mm 12mm; }
+  body { font-size: 11.5px; line-height: 1.6; padding: 0 !important; background: #fff; }
+  .wrap { max-width: none; margin: 0; }
+  header { padding-block: 0 18px; }
+  section { break-before: page; }
+  section:first-of-type { break-before: avoid; }
+  h1, h2, h3, h4 { break-after: avoid; }
+  figure, .fig-wrap, table, .note, .split { break-inside: avoid; }
+  figure svg, .fig-wrap svg { max-height: 215mm; }
+  pre { font-size: 9px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+  footer { break-before: page; }
+  a { color: var(--accent); text-decoration: none; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>acc 在哪，第四步要不要等</h1>
+  <p class="lede">
+    <code>__builtin_mxc_mma_16x16x16i8</code> 看着像一条普通的三操作数指令，
+    于是很容易读成「每条 lane 算自己那份，再累加到某个公共的地方」。
+    <strong>这个读法两头都不对。</strong>
+    acc 是<strong>纯线程私有的寄存器</strong>，没有任何公共累加器；
+    但这条指令<strong>也不是 64 个独立的标量运算</strong> ——
+    它是一次 wave 级的集体操作，数据横穿 lane。
+    这页把这两件事和「第四步要不要等」一起理清楚。
+  </p>
+</header>
+
+<section>
+  <h2>00</h2>
+  <h3>三个问题，先给短答案</h3>
+  <div class="tw"><table>
+    <thead><tr><th>问题</th><th>答案</th></tr></thead>
+    <tbody>
+      <tr><td style="white-space:normal">一条 lane 的 fragment 过一次 MMA，能得到完整的 wave 子矩阵吗？</td>
+          <td style="white-space:normal"><strong>不能，差得远。</strong>一条 MMA 只算 wave 区域 <code>64×64</code> 里的一个 <code>16×16</code> tile，而且这个 tile 的 256 个结果<strong>摊给 64 条 lane</strong>，每条只拿 4 个。整个 wave 区域要 <strong>256 条</strong> MMA</td></tr>
+      <tr><td style="white-space:normal">是不是每条 lane 把自己的 fragment「累加到全局」？</td>
+          <td style="white-space:normal"><strong>不是。</strong>没有全局累加器，没有 atomic，没有归约。<code>acc</code> 是<strong>线程私有寄存器</strong>，从头到尾只有本 lane 读写</td></tr>
+      <tr><td style="white-space:normal"><code>acc</code> 是全局维度的还是线程私有的？</td>
+          <td style="white-space:normal"><strong>线程私有。</strong>但「一条 lane 的 acc 里装的是哪几个 C 元素」由硬件定死，不是我们挑的</td></tr>
+      <tr><td style="white-space:normal">到第四步时 wave 子矩阵算完了吗？</td>
+          <td style="white-space:normal"><strong>算完了。</strong>k 循环一出来，<code>acc</code> 就是终值</td></tr>
+      <tr><td style="white-space:normal">第四步需要等 acc 全部算完吗？</td>
+          <td style="white-space:normal"><strong>不需要 barrier。</strong>每条 lane 只写自己的 acc、只写自己独占的地址。代码里写回前也确实<strong>一个 barrier 都没有</strong></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>01</h2>
+  <h3>acc 在哪：就是普通的私有寄存器</h3>
+  <p>先把最容易误会的一点钉死。声明长这样：</p>
+<pre><code>i32x4 acc[MMA_M][MMA_N];        <span class="cmt">// 4 × 4 个累加器，每个 4 个 int32</span>
+...
+acc[m][n] = __builtin_mxc_mma_16x16x16i8(af[m][c][w], bf[n][c][w], acc[m][n]);
+<span class="cmt">//   ↑ 读自己的，写自己的。没有指针，没有 __shared__，没有 atomic</span></code></pre>
+  <p>
+    它就是个局部变量，住在寄存器里。<strong>没有任何「全局维度」的累加器存在</strong> ——
+    不存在一块 C 的暂存区被 64 条 lane 轮流加。
+    kernel 从头到尾<strong>只碰一次 C</strong>，就是第四步那几条 store。
+  </p>
+  <div class="note"><p>
+    <strong>那为什么还是集体操作？</strong>因为私有的是<strong>存储</strong>，不是<strong>运算</strong>。
+    <code>acc</code> 的读写确实只有本 lane；但这条指令在执行时，
+    硬件会把<strong>全部 64 条 lane 的 <code>a</code> 和 <code>b</code> 寄存器一起读走</strong>，
+    算完整的 <code>16×16×16</code>，再把 256 个结果按另一套固定映射发回 64 条 lane 的 <code>acc</code>。
+    所以：<strong>存储是私有的，数据流是横穿 lane 的。</strong>
+  </p></div>
+</section>
+
+<section>
+  <h2>02</h2>
+  <h3>一条 MMA 指令里到底发生了什么</h3>
+  <p>
+    把一条指令的账算一遍就清楚了。每条 lane 交进去 <code>a</code>、<code>b</code> 各 4 个 int8：
+  </p>
+  <figure class="fig-wrap">
+    <svg viewBox="0 0 940 266" role="img" aria-label="一条 MMA 指令把 64 条 lane 的碎片一起读走，算完再按另一套映射发回 64 条 lane"
+     style="width:100%;max-width:940px;height:auto;display:block;margin:0 auto"
+     fill="none" stroke="currentColor"><defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7"
+  markerHeight="7" orient="auto-start-reverse">
+  <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs><text x="161" y="30" font-size="12" text-anchor="middle" font-weight="600" font-family="IBM Plex Mono, monospace">64 条 lane 各自交进去</text><text x="782" y="30" font-size="12" text-anchor="middle" font-weight="600" font-family="IBM Plex Mono, monospace">64 条 lane 各自拿回来</text><rect x="46" y="62" width="250" height="86" rx="3" fill="none" stroke="var(--fg-faint)" stroke-width="0.7" opacity="0.5"/><rect x="670" y="62" width="244" height="86" rx="3" fill="none" stroke="var(--fg-faint)" stroke-width="0.7" opacity="0.5"/><rect x="41" y="57" width="250" height="86" rx="3" fill="none" stroke="var(--fg-faint)" stroke-width="0.7" opacity="0.5"/><rect x="665" y="57" width="244" height="86" rx="3" fill="none" stroke="var(--fg-faint)" stroke-width="0.7" opacity="0.5"/><rect x="36" y="52" width="250" height="86" rx="3" fill="var(--surface)" stroke="currentColor" stroke-width="1.4"/><text x="48" y="72" font-size="11.5" text-anchor="start" font-weight="600" font-family="IBM Plex Mono, monospace">lane 19</text><text x="48" y="96" font-size="11" text-anchor="start" fill="var(--a-col)" font-family="IBM Plex Mono, monospace">a = A[3][4‥7]</text><text x="48" y="116" font-size="11" text-anchor="start" fill="var(--b-col)" font-family="IBM Plex Mono, monospace">b = B[4‥7][3]</text><text x="48" y="132" font-size="9" text-anchor="start" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">各 4 个 int8，打包成 1 个 int</text><rect x="660" y="52" width="244" height="86" rx="3" fill="var(--surface)" stroke="currentColor" stroke-width="1.4"/><text x="672" y="72" font-size="11.5" text-anchor="start" font-weight="600" font-family="IBM Plex Mono, monospace">lane 19</text><text x="672" y="96" font-size="11" text-anchor="start" fill="var(--c-col)" font-family="IBM Plex Mono, monospace">acc[0‥3] = C[4‥7][3]</text><text x="672" y="116" font-size="10" text-anchor="start" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">4 个 int32，私有寄存器</text><rect x="352" y="44" width="250" height="104" rx="8" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.4"/><text x="477" y="70" font-size="12" text-anchor="middle" fill="var(--accent)" font-weight="700" font-family="IBM Plex Mono, monospace">wave 级矩阵单元</text><text x="477" y="92" font-size="10.5" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">一次吃下整个</text><text x="477" y="110" font-size="11" text-anchor="middle" font-family="IBM Plex Mono, monospace">A(16×16) × B(16×16)</text><text x="477" y="132" font-size="10" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">读走 64 条 lane 的寄存器</text><line x1="292" y1="74" x2="346" y2="70" stroke="currentColor" stroke-width="1" opacity="0.75" marker-end="url(#ar)"/><line x1="608" y1="70" x2="654" y2="74" stroke="currentColor" stroke-width="1" opacity="0.75" marker-end="url(#ar)"/><line x1="292" y1="96" x2="346" y2="92" stroke="currentColor" stroke-width="1" opacity="0.75" marker-end="url(#ar)"/><line x1="608" y1="92" x2="654" y2="96" stroke="currentColor" stroke-width="1" opacity="0.75" marker-end="url(#ar)"/><line x1="292" y1="118" x2="346" y2="114" stroke="currentColor" stroke-width="1" opacity="0.75" marker-end="url(#ar)"/><line x1="608" y1="114" x2="654" y2="118" stroke="currentColor" stroke-width="1" opacity="0.75" marker-end="url(#ar)"/><text x="161" y="164" font-size="10.5" text-anchor="middle" fill="var(--a-col)" font-family="IBM Plex Mono, monospace">64 × 4 个 int8 = 256 B = 完整的 A 16×16</text><text x="161" y="180" font-size="10" text-anchor="middle" fill="var(--b-col)" font-family="IBM Plex Mono, monospace">（B 同理）</text><text x="782" y="164" font-size="10.5" text-anchor="middle" fill="var(--c-col)" font-family="IBM Plex Mono, monospace">64 × 4 个 int32 = 256 个 = 完整的 C 16×16</text><rect x="36" y="200" width="868" height="54" rx="6" fill="var(--surface-2)" stroke="var(--line)" stroke-width="1"/><text x="470" y="222" font-size="11.5" text-anchor="middle" font-weight="600" font-family="IBM Plex Mono, monospace">lane 19 交进去的是 A 的第 3 行，拿回来的是 C 的第 4‥7 行 —— 列对得上（都是 3），行对不上</text><text x="470" y="242" font-size="11" text-anchor="middle" fill="var(--c-col)" font-family="IBM Plex Mono, monospace">C[5][3] 归 lane 19 所有，可 lane 19 从头到尾没见过 A 的第 5 行</text></svg>
+    <figcaption>一条 MMA 的数据流。左边 64 条 lane 各交 4 个 A 元素、4 个 B 元素，合起来正好是完整的 <code>A(16×16)</code> 和 <code>B(16×16)</code>；右边 64 条 lane 各领 4 个 int32，合起来正好是完整的 <code>C(16×16)</code>。<strong>箭头是交叉的</strong> —— 交进去那条 lane 和拿回来那条 lane 不是同一条。</figcaption>
+  </figure>
+  <p>
+    为什么必须交叉？因为一条 lane 的寄存器只有 32 位 = 4 个 int8，
+    而算一个 <code>C[m][n]</code> 要 16 个 k 全齐。
+    <strong>16 个 k 被切成 4 段分给 4 条 lane，所以一个输出格子的原料天生就散在好几条 lane 手里</strong> ——
+    没有任何一条 lane 能独自算出任何一个输出。
+  </p>
+  <figure class="fig-wrap">
+    <svg viewBox="0 0 568 318" role="img" width="568" height="318" aria-label="同一批 64 条 lane 的三张座位表:交 A 时按 16 行乘 4 个 k 段排,交 B 时按 4 个 k 段乘 16 列排,领 C 时按 4 个行组乘 16 列排;同一个 q 在前两张表里是 k 段,在第三张表里变成行组">
+<defs><marker id="seatarr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="currentColor"/></marker></defs>
+<g font-family="IBM Plex Mono, monospace" fill="currentColor">
+<text x="52" y="36" font-size="10" font-weight="600" fill="var(--a-col)">① 交 A 的座位表</text>
+<text x="52" y="47" font-size="8" opacity=".6">行 = p，列 = k 段 q</text>
+<text x="74.5" y="58" text-anchor="middle" font-size="6.5" opacity=".55">0‥3</text>
+<text x="99.5" y="58" text-anchor="middle" font-size="6.5" opacity=".55">4‥7</text>
+<text x="124.5" y="58" text-anchor="middle" font-size="6.5" opacity=".55">8‥11</text>
+<text x="149.5" y="58" text-anchor="middle" font-size="6.5" opacity=".55">12‥15</text>
+<text x="57" y="71.5" text-anchor="end" font-size="6.5" opacity=".45">行0</text>
+<rect x="62" y="62" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="74.5" y="71.5" text-anchor="middle" font-size="7" opacity=".72">0</text>
+<rect x="87" y="62" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="99.5" y="71.5" text-anchor="middle" font-size="7" opacity=".72">16</text>
+<rect x="112" y="62" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="124.5" y="71.5" text-anchor="middle" font-size="7" opacity=".72">32</text>
+<rect x="137" y="62" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="149.5" y="71.5" text-anchor="middle" font-size="7" opacity=".72">48</text>
+<text x="57" y="84.5" text-anchor="end" font-size="6.5" opacity=".95" font-weight="700" fill="var(--a-col)">行1</text>
+<rect x="62" y="75" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="74.5" y="84.5" text-anchor="middle" font-size="7" opacity=".72">1</text>
+<rect x="87" y="75" width="25" height="13" fill="var(--a-col)" fill-opacity=".85"/>
+<rect x="87" y="75" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="99.5" y="84.5" text-anchor="middle" font-size="7" font-weight="700" fill="var(--surface)">17</text>
+<rect x="112" y="75" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="124.5" y="84.5" text-anchor="middle" font-size="7" opacity=".72">33</text>
+<rect x="137" y="75" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="149.5" y="84.5" text-anchor="middle" font-size="7" opacity=".72">49</text>
+<text x="57" y="97.5" text-anchor="end" font-size="6.5" opacity=".45">行2</text>
+<rect x="62" y="88" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="74.5" y="97.5" text-anchor="middle" font-size="7" opacity=".72">2</text>
+<rect x="87" y="88" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="99.5" y="97.5" text-anchor="middle" font-size="7" opacity=".72">18</text>
+<rect x="112" y="88" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="124.5" y="97.5" text-anchor="middle" font-size="7" opacity=".72">34</text>
+<rect x="137" y="88" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="149.5" y="97.5" text-anchor="middle" font-size="7" opacity=".72">50</text>
+<text x="57" y="110.5" text-anchor="end" font-size="6.5" opacity=".45">行3</text>
+<rect x="62" y="101" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="74.5" y="110.5" text-anchor="middle" font-size="7" opacity=".72">3</text>
+<rect x="87" y="101" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="99.5" y="110.5" text-anchor="middle" font-size="7" opacity=".72">19</text>
+<rect x="112" y="101" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="124.5" y="110.5" text-anchor="middle" font-size="7" opacity=".72">35</text>
+<rect x="137" y="101" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="149.5" y="110.5" text-anchor="middle" font-size="7" opacity=".72">51</text>
+<text x="57" y="123.5" text-anchor="end" font-size="6.5" opacity=".45">行4</text>
+<rect x="62" y="114" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="74.5" y="123.5" text-anchor="middle" font-size="7" opacity=".72">4</text>
+<rect x="87" y="114" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="99.5" y="123.5" text-anchor="middle" font-size="7" opacity=".72">20</text>
+<rect x="112" y="114" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="124.5" y="123.5" text-anchor="middle" font-size="7" opacity=".72">36</text>
+<rect x="137" y="114" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="149.5" y="123.5" text-anchor="middle" font-size="7" opacity=".72">52</text>
+<text x="57" y="136.5" text-anchor="end" font-size="6.5" opacity=".45">行5</text>
+<rect x="62" y="127" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="74.5" y="136.5" text-anchor="middle" font-size="7" opacity=".72">5</text>
+<rect x="87" y="127" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="99.5" y="136.5" text-anchor="middle" font-size="7" opacity=".72">21</text>
+<rect x="112" y="127" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="124.5" y="136.5" text-anchor="middle" font-size="7" opacity=".72">37</text>
+<rect x="137" y="127" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="149.5" y="136.5" text-anchor="middle" font-size="7" opacity=".72">53</text>
+<text x="57" y="149.5" text-anchor="end" font-size="6.5" opacity=".45">行6</text>
+<rect x="62" y="140" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="74.5" y="149.5" text-anchor="middle" font-size="7" opacity=".72">6</text>
+<rect x="87" y="140" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="99.5" y="149.5" text-anchor="middle" font-size="7" opacity=".72">22</text>
+<rect x="112" y="140" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="124.5" y="149.5" text-anchor="middle" font-size="7" opacity=".72">38</text>
+<rect x="137" y="140" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="149.5" y="149.5" text-anchor="middle" font-size="7" opacity=".72">54</text>
+<text x="57" y="162.5" text-anchor="end" font-size="6.5" opacity=".45">行7</text>
+<rect x="62" y="153" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="74.5" y="162.5" text-anchor="middle" font-size="7" opacity=".72">7</text>
+<rect x="87" y="153" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="99.5" y="162.5" text-anchor="middle" font-size="7" opacity=".72">23</text>
+<rect x="112" y="153" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="124.5" y="162.5" text-anchor="middle" font-size="7" opacity=".72">39</text>
+<rect x="137" y="153" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="149.5" y="162.5" text-anchor="middle" font-size="7" opacity=".72">55</text>
+<text x="57" y="175.5" text-anchor="end" font-size="6.5" opacity=".45">行8</text>
+<rect x="62" y="166" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="74.5" y="175.5" text-anchor="middle" font-size="7" opacity=".72">8</text>
+<rect x="87" y="166" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="99.5" y="175.5" text-anchor="middle" font-size="7" opacity=".72">24</text>
+<rect x="112" y="166" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="124.5" y="175.5" text-anchor="middle" font-size="7" opacity=".72">40</text>
+<rect x="137" y="166" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="149.5" y="175.5" text-anchor="middle" font-size="7" opacity=".72">56</text>
+<text x="57" y="188.5" text-anchor="end" font-size="6.5" opacity=".45">行9</text>
+<rect x="62" y="179" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="74.5" y="188.5" text-anchor="middle" font-size="7" opacity=".72">9</text>
+<rect x="87" y="179" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="99.5" y="188.5" text-anchor="middle" font-size="7" opacity=".72">25</text>
+<rect x="112" y="179" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="124.5" y="188.5" text-anchor="middle" font-size="7" opacity=".72">41</text>
+<rect x="137" y="179" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="149.5" y="188.5" text-anchor="middle" font-size="7" opacity=".72">57</text>
+<text x="57" y="201.5" text-anchor="end" font-size="6.5" opacity=".45">行10</text>
+<rect x="62" y="192" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="74.5" y="201.5" text-anchor="middle" font-size="7" opacity=".72">10</text>
+<rect x="87" y="192" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="99.5" y="201.5" text-anchor="middle" font-size="7" opacity=".72">26</text>
+<rect x="112" y="192" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="124.5" y="201.5" text-anchor="middle" font-size="7" opacity=".72">42</text>
+<rect x="137" y="192" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="149.5" y="201.5" text-anchor="middle" font-size="7" opacity=".72">58</text>
+<text x="57" y="214.5" text-anchor="end" font-size="6.5" opacity=".45">行11</text>
+<rect x="62" y="205" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="74.5" y="214.5" text-anchor="middle" font-size="7" opacity=".72">11</text>
+<rect x="87" y="205" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="99.5" y="214.5" text-anchor="middle" font-size="7" opacity=".72">27</text>
+<rect x="112" y="205" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="124.5" y="214.5" text-anchor="middle" font-size="7" opacity=".72">43</text>
+<rect x="137" y="205" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="149.5" y="214.5" text-anchor="middle" font-size="7" opacity=".72">59</text>
+<text x="57" y="227.5" text-anchor="end" font-size="6.5" opacity=".45">行12</text>
+<rect x="62" y="218" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="74.5" y="227.5" text-anchor="middle" font-size="7" opacity=".72">12</text>
+<rect x="87" y="218" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="99.5" y="227.5" text-anchor="middle" font-size="7" opacity=".72">28</text>
+<rect x="112" y="218" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="124.5" y="227.5" text-anchor="middle" font-size="7" opacity=".72">44</text>
+<rect x="137" y="218" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="149.5" y="227.5" text-anchor="middle" font-size="7" opacity=".72">60</text>
+<text x="57" y="240.5" text-anchor="end" font-size="6.5" opacity=".45">行13</text>
+<rect x="62" y="231" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="74.5" y="240.5" text-anchor="middle" font-size="7" opacity=".72">13</text>
+<rect x="87" y="231" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="99.5" y="240.5" text-anchor="middle" font-size="7" opacity=".72">29</text>
+<rect x="112" y="231" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="124.5" y="240.5" text-anchor="middle" font-size="7" opacity=".72">45</text>
+<rect x="137" y="231" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="149.5" y="240.5" text-anchor="middle" font-size="7" opacity=".72">61</text>
+<text x="57" y="253.5" text-anchor="end" font-size="6.5" opacity=".45">行14</text>
+<rect x="62" y="244" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="74.5" y="253.5" text-anchor="middle" font-size="7" opacity=".72">14</text>
+<rect x="87" y="244" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="99.5" y="253.5" text-anchor="middle" font-size="7" opacity=".72">30</text>
+<rect x="112" y="244" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="124.5" y="253.5" text-anchor="middle" font-size="7" opacity=".72">46</text>
+<rect x="137" y="244" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="149.5" y="253.5" text-anchor="middle" font-size="7" opacity=".72">62</text>
+<text x="57" y="266.5" text-anchor="end" font-size="6.5" opacity=".45">行15</text>
+<rect x="62" y="257" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="74.5" y="266.5" text-anchor="middle" font-size="7" opacity=".72">15</text>
+<rect x="87" y="257" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="99.5" y="266.5" text-anchor="middle" font-size="7" opacity=".72">31</text>
+<rect x="112" y="257" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="124.5" y="266.5" text-anchor="middle" font-size="7" opacity=".72">47</text>
+<rect x="137" y="257" width="25" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="149.5" y="266.5" text-anchor="middle" font-size="7" opacity=".72">63</text>
+<text x="174" y="36" font-size="10" font-weight="600" fill="var(--b-col)">② 交 B 的座位表</text>
+<text x="174" y="47" font-size="8" opacity=".6">行 = k 段 q，列 = p</text>
+<text x="222.5" y="58" text-anchor="middle" font-size="6.5" opacity=".45">0</text>
+<text x="243.5" y="58" text-anchor="middle" font-size="6.5" opacity=".95" font-weight="700" fill="var(--b-col)">1</text>
+<text x="264.5" y="58" text-anchor="middle" font-size="6.5" opacity=".45">2</text>
+<text x="285.5" y="58" text-anchor="middle" font-size="6.5" opacity=".45">3</text>
+<text x="306.5" y="58" text-anchor="middle" font-size="6.5" opacity=".45">4</text>
+<text x="327.5" y="58" text-anchor="middle" font-size="6.5" opacity=".45">5</text>
+<text x="348.5" y="58" text-anchor="middle" font-size="6.5" opacity=".45">6</text>
+<text x="369.5" y="58" text-anchor="middle" font-size="6.5" opacity=".45">7</text>
+<text x="390.5" y="58" text-anchor="middle" font-size="6.5" opacity=".45">8</text>
+<text x="411.5" y="58" text-anchor="middle" font-size="6.5" opacity=".45">9</text>
+<text x="432.5" y="58" text-anchor="middle" font-size="6.5" opacity=".45">10</text>
+<text x="453.5" y="58" text-anchor="middle" font-size="6.5" opacity=".45">11</text>
+<text x="474.5" y="58" text-anchor="middle" font-size="6.5" opacity=".45">12</text>
+<text x="495.5" y="58" text-anchor="middle" font-size="6.5" opacity=".45">13</text>
+<text x="516.5" y="58" text-anchor="middle" font-size="6.5" opacity=".45">14</text>
+<text x="537.5" y="58" text-anchor="middle" font-size="6.5" opacity=".45">15</text>
+<text x="207" y="71.5" text-anchor="end" font-size="6.5" opacity=".45">k 0‥3</text>
+<rect x="212" y="62" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="222.5" y="71.5" text-anchor="middle" font-size="7" opacity=".72">0</text>
+<rect x="233" y="62" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="243.5" y="71.5" text-anchor="middle" font-size="7" opacity=".72">1</text>
+<rect x="254" y="62" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="264.5" y="71.5" text-anchor="middle" font-size="7" opacity=".72">2</text>
+<rect x="275" y="62" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="285.5" y="71.5" text-anchor="middle" font-size="7" opacity=".72">3</text>
+<rect x="296" y="62" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="306.5" y="71.5" text-anchor="middle" font-size="7" opacity=".72">4</text>
+<rect x="317" y="62" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="327.5" y="71.5" text-anchor="middle" font-size="7" opacity=".72">5</text>
+<rect x="338" y="62" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="348.5" y="71.5" text-anchor="middle" font-size="7" opacity=".72">6</text>
+<rect x="359" y="62" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="369.5" y="71.5" text-anchor="middle" font-size="7" opacity=".72">7</text>
+<rect x="380" y="62" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="390.5" y="71.5" text-anchor="middle" font-size="7" opacity=".72">8</text>
+<rect x="401" y="62" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="411.5" y="71.5" text-anchor="middle" font-size="7" opacity=".72">9</text>
+<rect x="422" y="62" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="432.5" y="71.5" text-anchor="middle" font-size="7" opacity=".72">10</text>
+<rect x="443" y="62" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="453.5" y="71.5" text-anchor="middle" font-size="7" opacity=".72">11</text>
+<rect x="464" y="62" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="474.5" y="71.5" text-anchor="middle" font-size="7" opacity=".72">12</text>
+<rect x="485" y="62" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="495.5" y="71.5" text-anchor="middle" font-size="7" opacity=".72">13</text>
+<rect x="506" y="62" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="516.5" y="71.5" text-anchor="middle" font-size="7" opacity=".72">14</text>
+<rect x="527" y="62" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="537.5" y="71.5" text-anchor="middle" font-size="7" opacity=".72">15</text>
+<text x="207" y="84.5" text-anchor="end" font-size="6.5" opacity=".95" font-weight="700" fill="var(--b-col)">k 4‥7</text>
+<rect x="212" y="75" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="222.5" y="84.5" text-anchor="middle" font-size="7" opacity=".72">16</text>
+<rect x="233" y="75" width="21" height="13" fill="var(--b-col)" fill-opacity=".85"/>
+<rect x="233" y="75" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="243.5" y="84.5" text-anchor="middle" font-size="7" font-weight="700" fill="var(--surface)">17</text>
+<rect x="254" y="75" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="264.5" y="84.5" text-anchor="middle" font-size="7" opacity=".72">18</text>
+<rect x="275" y="75" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="285.5" y="84.5" text-anchor="middle" font-size="7" opacity=".72">19</text>
+<rect x="296" y="75" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="306.5" y="84.5" text-anchor="middle" font-size="7" opacity=".72">20</text>
+<rect x="317" y="75" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="327.5" y="84.5" text-anchor="middle" font-size="7" opacity=".72">21</text>
+<rect x="338" y="75" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="348.5" y="84.5" text-anchor="middle" font-size="7" opacity=".72">22</text>
+<rect x="359" y="75" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="369.5" y="84.5" text-anchor="middle" font-size="7" opacity=".72">23</text>
+<rect x="380" y="75" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="390.5" y="84.5" text-anchor="middle" font-size="7" opacity=".72">24</text>
+<rect x="401" y="75" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="411.5" y="84.5" text-anchor="middle" font-size="7" opacity=".72">25</text>
+<rect x="422" y="75" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="432.5" y="84.5" text-anchor="middle" font-size="7" opacity=".72">26</text>
+<rect x="443" y="75" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="453.5" y="84.5" text-anchor="middle" font-size="7" opacity=".72">27</text>
+<rect x="464" y="75" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="474.5" y="84.5" text-anchor="middle" font-size="7" opacity=".72">28</text>
+<rect x="485" y="75" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="495.5" y="84.5" text-anchor="middle" font-size="7" opacity=".72">29</text>
+<rect x="506" y="75" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="516.5" y="84.5" text-anchor="middle" font-size="7" opacity=".72">30</text>
+<rect x="527" y="75" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="537.5" y="84.5" text-anchor="middle" font-size="7" opacity=".72">31</text>
+<text x="207" y="97.5" text-anchor="end" font-size="6.5" opacity=".45">k 8‥11</text>
+<rect x="212" y="88" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="222.5" y="97.5" text-anchor="middle" font-size="7" opacity=".72">32</text>
+<rect x="233" y="88" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="243.5" y="97.5" text-anchor="middle" font-size="7" opacity=".72">33</text>
+<rect x="254" y="88" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="264.5" y="97.5" text-anchor="middle" font-size="7" opacity=".72">34</text>
+<rect x="275" y="88" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="285.5" y="97.5" text-anchor="middle" font-size="7" opacity=".72">35</text>
+<rect x="296" y="88" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="306.5" y="97.5" text-anchor="middle" font-size="7" opacity=".72">36</text>
+<rect x="317" y="88" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="327.5" y="97.5" text-anchor="middle" font-size="7" opacity=".72">37</text>
+<rect x="338" y="88" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="348.5" y="97.5" text-anchor="middle" font-size="7" opacity=".72">38</text>
+<rect x="359" y="88" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="369.5" y="97.5" text-anchor="middle" font-size="7" opacity=".72">39</text>
+<rect x="380" y="88" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="390.5" y="97.5" text-anchor="middle" font-size="7" opacity=".72">40</text>
+<rect x="401" y="88" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="411.5" y="97.5" text-anchor="middle" font-size="7" opacity=".72">41</text>
+<rect x="422" y="88" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="432.5" y="97.5" text-anchor="middle" font-size="7" opacity=".72">42</text>
+<rect x="443" y="88" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="453.5" y="97.5" text-anchor="middle" font-size="7" opacity=".72">43</text>
+<rect x="464" y="88" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="474.5" y="97.5" text-anchor="middle" font-size="7" opacity=".72">44</text>
+<rect x="485" y="88" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="495.5" y="97.5" text-anchor="middle" font-size="7" opacity=".72">45</text>
+<rect x="506" y="88" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="516.5" y="97.5" text-anchor="middle" font-size="7" opacity=".72">46</text>
+<rect x="527" y="88" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="537.5" y="97.5" text-anchor="middle" font-size="7" opacity=".72">47</text>
+<text x="207" y="110.5" text-anchor="end" font-size="6.5" opacity=".45">k 12‥15</text>
+<rect x="212" y="101" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="222.5" y="110.5" text-anchor="middle" font-size="7" opacity=".72">48</text>
+<rect x="233" y="101" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="243.5" y="110.5" text-anchor="middle" font-size="7" opacity=".72">49</text>
+<rect x="254" y="101" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="264.5" y="110.5" text-anchor="middle" font-size="7" opacity=".72">50</text>
+<rect x="275" y="101" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="285.5" y="110.5" text-anchor="middle" font-size="7" opacity=".72">51</text>
+<rect x="296" y="101" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="306.5" y="110.5" text-anchor="middle" font-size="7" opacity=".72">52</text>
+<rect x="317" y="101" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="327.5" y="110.5" text-anchor="middle" font-size="7" opacity=".72">53</text>
+<rect x="338" y="101" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="348.5" y="110.5" text-anchor="middle" font-size="7" opacity=".72">54</text>
+<rect x="359" y="101" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="369.5" y="110.5" text-anchor="middle" font-size="7" opacity=".72">55</text>
+<rect x="380" y="101" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="390.5" y="110.5" text-anchor="middle" font-size="7" opacity=".72">56</text>
+<rect x="401" y="101" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="411.5" y="110.5" text-anchor="middle" font-size="7" opacity=".72">57</text>
+<rect x="422" y="101" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="432.5" y="110.5" text-anchor="middle" font-size="7" opacity=".72">58</text>
+<rect x="443" y="101" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="453.5" y="110.5" text-anchor="middle" font-size="7" opacity=".72">59</text>
+<rect x="464" y="101" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="474.5" y="110.5" text-anchor="middle" font-size="7" opacity=".72">60</text>
+<rect x="485" y="101" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="495.5" y="110.5" text-anchor="middle" font-size="7" opacity=".72">61</text>
+<rect x="506" y="101" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="516.5" y="110.5" text-anchor="middle" font-size="7" opacity=".72">62</text>
+<rect x="527" y="101" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="537.5" y="110.5" text-anchor="middle" font-size="7" opacity=".72">63</text>
+<text x="174" y="170" font-size="10" font-weight="600" fill="var(--c-col)">③ 领 C 的座位表</text>
+<text x="174" y="181" font-size="8" opacity=".6">行 = 行组 q，列 = p　(每人 4 个 = e)</text>
+<text x="222.5" y="192" text-anchor="middle" font-size="6.5" opacity=".45">0</text>
+<text x="243.5" y="192" text-anchor="middle" font-size="6.5" opacity=".95" font-weight="700" fill="var(--c-col)">1</text>
+<text x="264.5" y="192" text-anchor="middle" font-size="6.5" opacity=".45">2</text>
+<text x="285.5" y="192" text-anchor="middle" font-size="6.5" opacity=".45">3</text>
+<text x="306.5" y="192" text-anchor="middle" font-size="6.5" opacity=".45">4</text>
+<text x="327.5" y="192" text-anchor="middle" font-size="6.5" opacity=".45">5</text>
+<text x="348.5" y="192" text-anchor="middle" font-size="6.5" opacity=".45">6</text>
+<text x="369.5" y="192" text-anchor="middle" font-size="6.5" opacity=".45">7</text>
+<text x="390.5" y="192" text-anchor="middle" font-size="6.5" opacity=".45">8</text>
+<text x="411.5" y="192" text-anchor="middle" font-size="6.5" opacity=".45">9</text>
+<text x="432.5" y="192" text-anchor="middle" font-size="6.5" opacity=".45">10</text>
+<text x="453.5" y="192" text-anchor="middle" font-size="6.5" opacity=".45">11</text>
+<text x="474.5" y="192" text-anchor="middle" font-size="6.5" opacity=".45">12</text>
+<text x="495.5" y="192" text-anchor="middle" font-size="6.5" opacity=".45">13</text>
+<text x="516.5" y="192" text-anchor="middle" font-size="6.5" opacity=".45">14</text>
+<text x="537.5" y="192" text-anchor="middle" font-size="6.5" opacity=".45">15</text>
+<text x="207" y="205.5" text-anchor="end" font-size="6.5" opacity=".45">行 0‥3</text>
+<rect x="212" y="196" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="222.5" y="205.5" text-anchor="middle" font-size="7" opacity=".72">0</text>
+<rect x="233" y="196" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="243.5" y="205.5" text-anchor="middle" font-size="7" opacity=".72">1</text>
+<rect x="254" y="196" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="264.5" y="205.5" text-anchor="middle" font-size="7" opacity=".72">2</text>
+<rect x="275" y="196" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="285.5" y="205.5" text-anchor="middle" font-size="7" opacity=".72">3</text>
+<rect x="296" y="196" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="306.5" y="205.5" text-anchor="middle" font-size="7" opacity=".72">4</text>
+<rect x="317" y="196" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="327.5" y="205.5" text-anchor="middle" font-size="7" opacity=".72">5</text>
+<rect x="338" y="196" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="348.5" y="205.5" text-anchor="middle" font-size="7" opacity=".72">6</text>
+<rect x="359" y="196" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="369.5" y="205.5" text-anchor="middle" font-size="7" opacity=".72">7</text>
+<rect x="380" y="196" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="390.5" y="205.5" text-anchor="middle" font-size="7" opacity=".72">8</text>
+<rect x="401" y="196" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="411.5" y="205.5" text-anchor="middle" font-size="7" opacity=".72">9</text>
+<rect x="422" y="196" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="432.5" y="205.5" text-anchor="middle" font-size="7" opacity=".72">10</text>
+<rect x="443" y="196" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="453.5" y="205.5" text-anchor="middle" font-size="7" opacity=".72">11</text>
+<rect x="464" y="196" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="474.5" y="205.5" text-anchor="middle" font-size="7" opacity=".72">12</text>
+<rect x="485" y="196" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="495.5" y="205.5" text-anchor="middle" font-size="7" opacity=".72">13</text>
+<rect x="506" y="196" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="516.5" y="205.5" text-anchor="middle" font-size="7" opacity=".72">14</text>
+<rect x="527" y="196" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="537.5" y="205.5" text-anchor="middle" font-size="7" opacity=".72">15</text>
+<text x="207" y="218.5" text-anchor="end" font-size="6.5" opacity=".95" font-weight="700" fill="var(--c-col)">行 4‥7</text>
+<rect x="212" y="209" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="222.5" y="218.5" text-anchor="middle" font-size="7" opacity=".72">16</text>
+<rect x="233" y="209" width="21" height="13" fill="var(--c-col)" fill-opacity=".85"/>
+<rect x="233" y="209" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="243.5" y="218.5" text-anchor="middle" font-size="7" font-weight="700" fill="var(--surface)">17</text>
+<rect x="254" y="209" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="264.5" y="218.5" text-anchor="middle" font-size="7" opacity=".72">18</text>
+<rect x="275" y="209" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="285.5" y="218.5" text-anchor="middle" font-size="7" opacity=".72">19</text>
+<rect x="296" y="209" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="306.5" y="218.5" text-anchor="middle" font-size="7" opacity=".72">20</text>
+<rect x="317" y="209" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="327.5" y="218.5" text-anchor="middle" font-size="7" opacity=".72">21</text>
+<rect x="338" y="209" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="348.5" y="218.5" text-anchor="middle" font-size="7" opacity=".72">22</text>
+<rect x="359" y="209" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="369.5" y="218.5" text-anchor="middle" font-size="7" opacity=".72">23</text>
+<rect x="380" y="209" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="390.5" y="218.5" text-anchor="middle" font-size="7" opacity=".72">24</text>
+<rect x="401" y="209" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="411.5" y="218.5" text-anchor="middle" font-size="7" opacity=".72">25</text>
+<rect x="422" y="209" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="432.5" y="218.5" text-anchor="middle" font-size="7" opacity=".72">26</text>
+<rect x="443" y="209" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="453.5" y="218.5" text-anchor="middle" font-size="7" opacity=".72">27</text>
+<rect x="464" y="209" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="474.5" y="218.5" text-anchor="middle" font-size="7" opacity=".72">28</text>
+<rect x="485" y="209" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="495.5" y="218.5" text-anchor="middle" font-size="7" opacity=".72">29</text>
+<rect x="506" y="209" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="516.5" y="218.5" text-anchor="middle" font-size="7" opacity=".72">30</text>
+<rect x="527" y="209" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="537.5" y="218.5" text-anchor="middle" font-size="7" opacity=".72">31</text>
+<text x="207" y="231.5" text-anchor="end" font-size="6.5" opacity=".45">行 8‥11</text>
+<rect x="212" y="222" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="222.5" y="231.5" text-anchor="middle" font-size="7" opacity=".72">32</text>
+<rect x="233" y="222" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="243.5" y="231.5" text-anchor="middle" font-size="7" opacity=".72">33</text>
+<rect x="254" y="222" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="264.5" y="231.5" text-anchor="middle" font-size="7" opacity=".72">34</text>
+<rect x="275" y="222" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="285.5" y="231.5" text-anchor="middle" font-size="7" opacity=".72">35</text>
+<rect x="296" y="222" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="306.5" y="231.5" text-anchor="middle" font-size="7" opacity=".72">36</text>
+<rect x="317" y="222" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="327.5" y="231.5" text-anchor="middle" font-size="7" opacity=".72">37</text>
+<rect x="338" y="222" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="348.5" y="231.5" text-anchor="middle" font-size="7" opacity=".72">38</text>
+<rect x="359" y="222" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="369.5" y="231.5" text-anchor="middle" font-size="7" opacity=".72">39</text>
+<rect x="380" y="222" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="390.5" y="231.5" text-anchor="middle" font-size="7" opacity=".72">40</text>
+<rect x="401" y="222" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="411.5" y="231.5" text-anchor="middle" font-size="7" opacity=".72">41</text>
+<rect x="422" y="222" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="432.5" y="231.5" text-anchor="middle" font-size="7" opacity=".72">42</text>
+<rect x="443" y="222" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="453.5" y="231.5" text-anchor="middle" font-size="7" opacity=".72">43</text>
+<rect x="464" y="222" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="474.5" y="231.5" text-anchor="middle" font-size="7" opacity=".72">44</text>
+<rect x="485" y="222" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="495.5" y="231.5" text-anchor="middle" font-size="7" opacity=".72">45</text>
+<rect x="506" y="222" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="516.5" y="231.5" text-anchor="middle" font-size="7" opacity=".72">46</text>
+<rect x="527" y="222" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="537.5" y="231.5" text-anchor="middle" font-size="7" opacity=".72">47</text>
+<text x="207" y="244.5" text-anchor="end" font-size="6.5" opacity=".45">行 12‥15</text>
+<rect x="212" y="235" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="222.5" y="244.5" text-anchor="middle" font-size="7" opacity=".72">48</text>
+<rect x="233" y="235" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="243.5" y="244.5" text-anchor="middle" font-size="7" opacity=".72">49</text>
+<rect x="254" y="235" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="264.5" y="244.5" text-anchor="middle" font-size="7" opacity=".72">50</text>
+<rect x="275" y="235" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="285.5" y="244.5" text-anchor="middle" font-size="7" opacity=".72">51</text>
+<rect x="296" y="235" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="306.5" y="244.5" text-anchor="middle" font-size="7" opacity=".72">52</text>
+<rect x="317" y="235" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="327.5" y="244.5" text-anchor="middle" font-size="7" opacity=".72">53</text>
+<rect x="338" y="235" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="348.5" y="244.5" text-anchor="middle" font-size="7" opacity=".72">54</text>
+<rect x="359" y="235" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="369.5" y="244.5" text-anchor="middle" font-size="7" opacity=".72">55</text>
+<rect x="380" y="235" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="390.5" y="244.5" text-anchor="middle" font-size="7" opacity=".72">56</text>
+<rect x="401" y="235" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="411.5" y="244.5" text-anchor="middle" font-size="7" opacity=".72">57</text>
+<rect x="422" y="235" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="432.5" y="244.5" text-anchor="middle" font-size="7" opacity=".72">58</text>
+<rect x="443" y="235" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="453.5" y="244.5" text-anchor="middle" font-size="7" opacity=".72">59</text>
+<rect x="464" y="235" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="474.5" y="244.5" text-anchor="middle" font-size="7" opacity=".72">60</text>
+<rect x="485" y="235" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="495.5" y="244.5" text-anchor="middle" font-size="7" opacity=".72">61</text>
+<rect x="506" y="235" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="516.5" y="244.5" text-anchor="middle" font-size="7" opacity=".72">62</text>
+<rect x="527" y="235" width="21" height="13" fill="none" stroke="currentColor" stroke-opacity=".18"/>
+<text x="537.5" y="244.5" text-anchor="middle" font-size="7" opacity=".72">63</text>
+<line x1="252" y1="124" x2="252" y2="160" stroke="currentColor" stroke-opacity=".5" marker-end="url(#seatarr)"/>
+<text x="264" y="134" font-size="9" font-weight="600">同一个 q，到第三张表里换了身份</text>
+<text x="264" y="147" font-size="8.5" opacity=".7">①② 里它是「第几段 k」　　③ 里它是「第几组行」</text>
+<text x="52" y="306" font-size="8.5" opacity=".7">三张表各 64 格，各自恰好铺满一个 16×16，不重不漏。高亮的是 lane 17（p=1, q=1）。</text>
+</g></svg>
+    <figcaption>三张座位表。<code>p = lane%16</code>、<code>q = lane/16</code> 这两个号在三张表里<strong>管的事不一样</strong>：交 A/B 时 <code>q</code> 是「第几段 k」，领 C 时 <code>q</code> 改成「第几个行组」。<strong>列对得上（b 的列 = acc 的列），行对不上（a 的行 ≠ acc 的行）</strong> —— 这就是上一张图里箭头交叉的全部原因。</figcaption>
+  </figure>
+  <p>拿 <strong>lane 19</strong> 当例子（<code>p = 3</code>，<code>q = 1</code>）：</p>
+  <div class="tw"><table>
+    <thead><tr><th></th><th>公式</th><th>lane 19 实际拿到/交出</th></tr></thead>
+    <tbody>
+      <tr><td>交 a</td><td class="n">行 = p，k = 4q‥4q+3</td><td class="n">A[3][4‥7]</td></tr>
+      <tr><td>交 b</td><td class="n">k = 4q‥4q+3，列 = p</td><td class="n">B[4‥7][3]</td></tr>
+      <tr><td>领 acc</td><td class="n">行 = 4q+e，列 = p</td><td class="n">C[4][3] C[5][3] C[6][3] C[7][3]</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note"><p>
+    <strong>看最后一行：<code>C[5][3]</code> 归 lane 19。</strong>
+    可 lane 19 交进去的 A 是<strong>第 3 行</strong>，它<strong>从头到尾没见过 A 的第 5 行</strong>。
+    算 <code>C[5][3]</code> 要用的 <code>A[5][0‥15]</code>，是 lane 5 / 21 / 37 / 53 交的。
+    这就是「数据横穿 lane」最直白的证据 —— 也是真机 dump 验过的（第 05 节）。
+  </p></div>
+</section>
+
+<section>
+  <h2>03</h2>
+  <h3>一条 lane 手里到底攥着多少</h3>
+  <p>
+    一条 MMA 只覆盖一个 <code>16×16</code> tile。wave 负责的是 <code>64×64</code>，
+    也就是 <code>4×4 = 16</code> 个 tile —— 所以每条 lane 有 16 个累加器：
+  </p>
+  <figure class="fig-wrap">
+    <svg viewBox="0 0 900 304" role="img" aria-label="一条 lane 持有 16 个累加器共 64 个 int32，64 条 lane 合起来正好是 wave 的 64 乘 64"
+     style="width:100%;max-width:900px;height:auto;display:block;margin:0 auto"
+     fill="none" stroke="currentColor"><defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7"
+  markerHeight="7" orient="auto-start-reverse">
+  <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs><text x="234" y="28" font-size="12" text-anchor="middle" font-weight="600" font-family="IBM Plex Mono, monospace">一条 lane 的寄存器：acc[4][4]</text><rect x="90" y="44" width="67" height="49" rx="3" fill="var(--c-col)" stroke="var(--c-col)" stroke-width="1" opacity="0.18"/><text x="123.5" y="61" font-size="9.5" text-anchor="middle" fill="var(--c-col)" font-family="IBM Plex Mono, monospace">acc[0][0]</text><rect x="96" y="68" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="110" y="68" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="124" y="68" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="138" y="68" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><text x="123.5" y="92" font-size="8" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">4 个 int32</text><rect x="162" y="44" width="67" height="49" rx="3" fill="var(--c-col)" stroke="var(--c-col)" stroke-width="1" opacity="0.18"/><text x="195.5" y="61" font-size="9.5" text-anchor="middle" fill="var(--c-col)" font-family="IBM Plex Mono, monospace">acc[0][1]</text><rect x="168" y="68" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="182" y="68" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="196" y="68" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="210" y="68" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><text x="195.5" y="92" font-size="8" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">4 个 int32</text><rect x="234" y="44" width="67" height="49" rx="3" fill="var(--c-col)" stroke="var(--c-col)" stroke-width="1" opacity="0.18"/><text x="267.5" y="61" font-size="9.5" text-anchor="middle" fill="var(--c-col)" font-family="IBM Plex Mono, monospace">acc[0][2]</text><rect x="240" y="68" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="254" y="68" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="268" y="68" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="282" y="68" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><text x="267.5" y="92" font-size="8" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">4 个 int32</text><rect x="306" y="44" width="67" height="49" rx="3" fill="var(--c-col)" stroke="var(--c-col)" stroke-width="1" opacity="0.18"/><text x="339.5" y="61" font-size="9.5" text-anchor="middle" fill="var(--c-col)" font-family="IBM Plex Mono, monospace">acc[0][3]</text><rect x="312" y="68" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="326" y="68" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="340" y="68" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="354" y="68" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><text x="339.5" y="92" font-size="8" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">4 个 int32</text><rect x="90" y="98" width="67" height="49" rx="3" fill="var(--c-col)" stroke="var(--c-col)" stroke-width="1" opacity="0.18"/><text x="123.5" y="115" font-size="9.5" text-anchor="middle" fill="var(--c-col)" font-family="IBM Plex Mono, monospace">acc[1][0]</text><rect x="96" y="122" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="110" y="122" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="124" y="122" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="138" y="122" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><text x="123.5" y="146" font-size="8" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">4 个 int32</text><rect x="162" y="98" width="67" height="49" rx="3" fill="var(--c-col)" stroke="var(--c-col)" stroke-width="1" opacity="0.18"/><text x="195.5" y="115" font-size="9.5" text-anchor="middle" fill="var(--c-col)" font-family="IBM Plex Mono, monospace">acc[1][1]</text><rect x="168" y="122" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="182" y="122" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="196" y="122" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="210" y="122" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><text x="195.5" y="146" font-size="8" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">4 个 int32</text><rect x="234" y="98" width="67" height="49" rx="3" fill="var(--c-col)" stroke="var(--c-col)" stroke-width="1" opacity="0.18"/><text x="267.5" y="115" font-size="9.5" text-anchor="middle" fill="var(--c-col)" font-family="IBM Plex Mono, monospace">acc[1][2]</text><rect x="240" y="122" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="254" y="122" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="268" y="122" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="282" y="122" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><text x="267.5" y="146" font-size="8" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">4 个 int32</text><rect x="306" y="98" width="67" height="49" rx="3" fill="var(--c-col)" stroke="var(--c-col)" stroke-width="1" opacity="0.18"/><text x="339.5" y="115" font-size="9.5" text-anchor="middle" fill="var(--c-col)" font-family="IBM Plex Mono, monospace">acc[1][3]</text><rect x="312" y="122" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="326" y="122" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="340" y="122" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="354" y="122" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><text x="339.5" y="146" font-size="8" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">4 个 int32</text><rect x="90" y="152" width="67" height="49" rx="3" fill="var(--c-col)" stroke="var(--c-col)" stroke-width="1" opacity="0.18"/><text x="123.5" y="169" font-size="9.5" text-anchor="middle" fill="var(--c-col)" font-family="IBM Plex Mono, monospace">acc[2][0]</text><rect x="96" y="176" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="110" y="176" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="124" y="176" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="138" y="176" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><text x="123.5" y="200" font-size="8" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">4 个 int32</text><rect x="162" y="152" width="67" height="49" rx="3" fill="var(--c-col)" stroke="var(--c-col)" stroke-width="1" opacity="0.18"/><text x="195.5" y="169" font-size="9.5" text-anchor="middle" fill="var(--c-col)" font-family="IBM Plex Mono, monospace">acc[2][1]</text><rect x="168" y="176" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="182" y="176" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="196" y="176" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="210" y="176" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><text x="195.5" y="200" font-size="8" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">4 个 int32</text><rect x="234" y="152" width="67" height="49" rx="3" fill="var(--c-col)" stroke="var(--c-col)" stroke-width="1" opacity="0.18"/><text x="267.5" y="169" font-size="9.5" text-anchor="middle" fill="var(--c-col)" font-family="IBM Plex Mono, monospace">acc[2][2]</text><rect x="240" y="176" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="254" y="176" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="268" y="176" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="282" y="176" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><text x="267.5" y="200" font-size="8" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">4 个 int32</text><rect x="306" y="152" width="67" height="49" rx="3" fill="var(--c-col)" stroke="var(--c-col)" stroke-width="1" opacity="0.18"/><text x="339.5" y="169" font-size="9.5" text-anchor="middle" fill="var(--c-col)" font-family="IBM Plex Mono, monospace">acc[2][3]</text><rect x="312" y="176" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="326" y="176" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="340" y="176" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="354" y="176" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><text x="339.5" y="200" font-size="8" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">4 个 int32</text><rect x="90" y="206" width="67" height="49" rx="3" fill="var(--c-col)" stroke="var(--c-col)" stroke-width="1" opacity="0.18"/><text x="123.5" y="223" font-size="9.5" text-anchor="middle" fill="var(--c-col)" font-family="IBM Plex Mono, monospace">acc[3][0]</text><rect x="96" y="230" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="110" y="230" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="124" y="230" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="138" y="230" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><text x="123.5" y="254" font-size="8" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">4 个 int32</text><rect x="162" y="206" width="67" height="49" rx="3" fill="var(--c-col)" stroke="var(--c-col)" stroke-width="1" opacity="0.18"/><text x="195.5" y="223" font-size="9.5" text-anchor="middle" fill="var(--c-col)" font-family="IBM Plex Mono, monospace">acc[3][1]</text><rect x="168" y="230" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="182" y="230" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="196" y="230" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="210" y="230" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><text x="195.5" y="254" font-size="8" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">4 个 int32</text><rect x="234" y="206" width="67" height="49" rx="3" fill="var(--c-col)" stroke="var(--c-col)" stroke-width="1" opacity="0.18"/><text x="267.5" y="223" font-size="9.5" text-anchor="middle" fill="var(--c-col)" font-family="IBM Plex Mono, monospace">acc[3][2]</text><rect x="240" y="230" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="254" y="230" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="268" y="230" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="282" y="230" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><text x="267.5" y="254" font-size="8" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">4 个 int32</text><rect x="306" y="206" width="67" height="49" rx="3" fill="var(--c-col)" stroke="var(--c-col)" stroke-width="1" opacity="0.18"/><text x="339.5" y="223" font-size="9.5" text-anchor="middle" fill="var(--c-col)" font-family="IBM Plex Mono, monospace">acc[3][3]</text><rect x="312" y="230" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="326" y="230" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="340" y="230" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><rect x="354" y="230" width="11" height="16" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.8"/><text x="339.5" y="254" font-size="8" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">4 个 int32</text><text x="412" y="60" font-size="11" text-anchor="start" fill="currentColor" font-weight="600" font-family="IBM Plex Mono, monospace">一条 lane 手里：</text><text x="412" y="84" font-size="11" text-anchor="start" fill="currentColor" font-weight="400" font-family="IBM Plex Mono, monospace">16 个 acc × 4 个 int32</text><text x="624" y="84" font-size="11" text-anchor="start" fill="var(--b-col)" font-weight="600" font-family="IBM Plex Mono, monospace">= 64 个</text><text x="412" y="132" font-size="11" text-anchor="start" fill="currentColor" font-weight="600" font-family="IBM Plex Mono, monospace">整个 wave：</text><text x="412" y="156" font-size="11" text-anchor="start" fill="currentColor" font-weight="400" font-family="IBM Plex Mono, monospace">64 条 lane × 64 个</text><text x="624" y="156" font-size="11" text-anchor="start" fill="var(--b-col)" font-weight="600" font-family="IBM Plex Mono, monospace">= 4096 个</text><text x="412" y="180" font-size="11" text-anchor="start" fill="currentColor" font-weight="400" font-family="IBM Plex Mono, monospace">wave 负责的区域 64 × 64</text><text x="624" y="180" font-size="11" text-anchor="start" fill="var(--b-col)" font-weight="600" font-family="IBM Plex Mono, monospace">= 4096 个</text><text x="412" y="228" font-size="11" text-anchor="start" fill="var(--b-col)" font-weight="600" font-family="IBM Plex Mono, monospace">不多不少，正好铺满</text><text x="450" y="286" font-size="11.5" text-anchor="middle" font-weight="600" font-family="IBM Plex Mono, monospace">wave 的整个 64×64 子矩阵，从第一条 MMA 到第四步之前，只存在于这 64 条 lane 的寄存器里</text></svg>
+    <figcaption>一条 lane 持有 <code>acc[4][4]</code>，每个 4 个 int32，共 <strong>64 个</strong>。64 条 lane 合起来 <code>64 × 64 = 4096</code>，正好是 wave 区域的 <code>64 × 64</code>，<strong>不重不漏</strong>。</figcaption>
+  </figure>
+  <p>
+    这 64 个格子在 wave 区域里<strong>不是连成一片的</strong>，而是按
+    <code>行 = m*16 + 4q + e</code>、<code>列 = n*16 + p</code> 散开的：
+  </p>
+  <figure class="fig-wrap">
+    <svg viewBox="0 0 568 316" role="img" width="568" height="316" aria-label="lane 17 在 wave 的 64 乘 64 区域里写到的 64 个格子:排成 4 组行乘 4 列共 16 根竖条,每根 4 格,对应 16 个累加器各 4 个 int32">
+<g font-family="IBM Plex Sans, system-ui, sans-serif" fill="currentColor">
+<text x="128" y="34" font-size="10" font-weight="600" fill="var(--c-col)">wave 1 的 64 × 64（全局 行 128‥191 × 列 64‥127）</text>
+<text x="128" y="46" font-size="8" opacity=".6">橙色 = lane 17 写到的格子，一共 64 个；其余 4032 个归另外 63 条 lane</text>
+<rect x="128" y="64" width="192" height="192" fill="none" stroke="currentColor" stroke-opacity=".5"/>
+<line x1="176" y1="64" x2="176" y2="256" stroke="currentColor" stroke-opacity=".3"/>
+<line x1="128" y1="112" x2="320" y2="112" stroke="currentColor" stroke-opacity=".3"/>
+<line x1="224" y1="64" x2="224" y2="256" stroke="currentColor" stroke-opacity=".3"/>
+<line x1="128" y1="160" x2="320" y2="160" stroke="currentColor" stroke-opacity=".3"/>
+<line x1="272" y1="64" x2="272" y2="256" stroke="currentColor" stroke-opacity=".3"/>
+<line x1="128" y1="208" x2="320" y2="208" stroke="currentColor" stroke-opacity=".3"/>
+<rect x="131" y="76" width="3" height="12" fill="var(--c-col)"/>
+<text x="136" y="84" font-size="6.5" opacity=".6">0,0</text>
+<rect x="179" y="76" width="3" height="12" fill="var(--c-col)"/>
+<text x="184" y="84" font-size="6.5" opacity=".6">0,1</text>
+<rect x="227" y="76" width="3" height="12" fill="var(--c-col)"/>
+<text x="232" y="84" font-size="6.5" opacity=".6">0,2</text>
+<rect x="275" y="76" width="3" height="12" fill="var(--c-col)"/>
+<text x="280" y="84" font-size="6.5" opacity=".6">0,3</text>
+<rect x="131" y="124" width="3" height="12" fill="var(--c-col)"/>
+<text x="136" y="132" font-size="6.5" opacity=".6">1,0</text>
+<rect x="179" y="124" width="3" height="12" fill="var(--c-col)"/>
+<text x="184" y="132" font-size="6.5" opacity=".6">1,1</text>
+<rect x="227" y="124" width="3" height="12" fill="var(--c-col)"/>
+<text x="232" y="132" font-size="6.5" opacity=".6">1,2</text>
+<rect x="275" y="124" width="3" height="12" fill="var(--c-col)"/>
+<text x="280" y="132" font-size="6.5" opacity=".6">1,3</text>
+<rect x="131" y="172" width="3" height="12" fill="var(--c-col)"/>
+<text x="136" y="180" font-size="6.5" opacity=".6">2,0</text>
+<rect x="179" y="172" width="3" height="12" fill="var(--c-col)"/>
+<text x="184" y="180" font-size="6.5" opacity=".6">2,1</text>
+<rect x="227" y="172" width="3" height="12" fill="var(--c-col)"/>
+<text x="232" y="180" font-size="6.5" opacity=".6">2,2</text>
+<rect x="275" y="172" width="3" height="12" fill="var(--c-col)"/>
+<text x="280" y="180" font-size="6.5" opacity=".6">2,3</text>
+<rect x="131" y="220" width="3" height="12" fill="var(--c-col)"/>
+<text x="136" y="228" font-size="6.5" opacity=".6">3,0</text>
+<rect x="179" y="220" width="3" height="12" fill="var(--c-col)"/>
+<text x="184" y="228" font-size="6.5" opacity=".6">3,1</text>
+<rect x="227" y="220" width="3" height="12" fill="var(--c-col)"/>
+<text x="232" y="228" font-size="6.5" opacity=".6">3,2</text>
+<rect x="275" y="220" width="3" height="12" fill="var(--c-col)"/>
+<text x="280" y="228" font-size="6.5" opacity=".6">3,3</text>
+<text x="122" y="85" text-anchor="end" font-size="7.5" fill="var(--c-col)">132‥135</text>
+<text x="122" y="133" text-anchor="end" font-size="7.5" fill="var(--c-col)">148‥151</text>
+<text x="122" y="181" text-anchor="end" font-size="7.5" fill="var(--c-col)">164‥167</text>
+<text x="122" y="229" text-anchor="end" font-size="7.5" fill="var(--c-col)">180‥183</text>
+<text x="122" y="60" text-anchor="end" font-size="7.5" opacity=".55">行</text>
+<text x="132.5" y="59" text-anchor="middle" font-size="7.5" fill="var(--c-col)">65</text>
+<text x="180.5" y="59" text-anchor="middle" font-size="7.5" fill="var(--c-col)">81</text>
+<text x="228.5" y="59" text-anchor="middle" font-size="7.5" fill="var(--c-col)">97</text>
+<text x="276.5" y="59" text-anchor="middle" font-size="7.5" fill="var(--c-col)">113</text>
+<text x="342" y="70" font-size="9" font-weight="600">每根竖条 = 一个 tile 的</text>
+<text x="342" y="82" font-size="8.5" >acc[m][n]，4 个 int32</text>
+<text x="342" y="94" font-size="8.5" opacity=".65">= 4 次 store（e=0..3）</text>
+<line x1="342" y1="104" x2="512" y2="104" stroke="currentColor" stroke-opacity=".25"/>
+<text x="342" y="120" font-size="9" font-weight="600">16 根竖条 = 16 个 tile</text>
+<text x="342" y="132" font-size="8.5" >16 × 4 = 64 次 store</text>
+<text x="342" y="144" font-size="8.5" opacity=".65">64 × 4 B = 256 字节</text>
+<line x1="342" y1="154" x2="512" y2="154" stroke="currentColor" stroke-opacity=".25"/>
+<text x="342" y="170" font-size="9" font-weight="600">整个 wave</text>
+<text x="342" y="182" font-size="8.5" >64 lane × 64 = 4096</text>
+<text x="342" y="194" font-size="8.5" opacity=".65">= 64×64，每格恰好一次</text>
+<line x1="342" y1="204" x2="512" y2="204" stroke="currentColor" stroke-opacity=".25"/>
+<text x="342" y="220" font-size="9" font-weight="600">竖条内相邻 4 行</text>
+<text x="342" y="232" font-size="8.5" >地址差 N×4 = 1024 B</text>
+<text x="342" y="244" font-size="8.5" opacity=".65">竖条之间差 16 行 / 16 列</text>
+<text x="52" y="280" font-size="8.5" opacity=".75">落点 = 行 {132‥135, 148‥151, 164‥167, 180‥183} × 列 {65, 81, 97, 113}　—— 4 组行 × 4 列 = 16 根，每根 4 格</text>
+<text x="52" y="294" font-size="8.5" opacity=".75">格子里的 <tspan font-weight="600">m,n</tspan> 是 <tspan font-family="IBM Plex Mono">acc[m][n]</tspan> 的下标；写回循环按 m 外、n 内、e 最内的顺序走这 16 根。</text>
+</g></svg>
+    <figcaption>以 lane 17 为例，它在 wave 的 <code>64×64</code> 区域里持有的 64 个格子。<strong>4×4 个 tile，每个 tile 里一列上的连续 4 行</strong>。第四步就是把这 64 个数写出去，所以一条 lane 要发 64 次 store。</figcaption>
+  </figure>
+  <div class="note"><p>
+    <strong>一个推论：wave 的 64×64 子矩阵，在第四步之前只存在于寄存器里。</strong>
+    LDS 里没有它（LDS 只放 A、B 的分块），显存里更没有。
+    它碎成 64 份攥在 64 条 lane 手上，谁也拼不出完整的一行或一列。
+  </p></div>
+</section>
+
+<section>
+  <h2>04</h2>
+  <h3>第四步：算完了吗？要等吗？</h3>
+  <p><strong>算完了。</strong>k 循环退出的那一刻，每个 <code>acc[m][n][e]</code> 已经是完整的点积 ——
+     K 个乘积全加完了，没有尾巴。第四步纯粹是搬运，不含任何运算。</p>
+  <p><strong>不需要 barrier。</strong>三条理由，缺一不可：</p>
+  <figure class="fig-wrap">
+    <svg viewBox="0 0 940 268" role="img" aria-label="第四步前不需要 barrier：acc 是私有寄存器，每条 lane 写的地址互不重叠"
+     style="width:100%;max-width:940px;height:auto;display:block;margin:0 auto"
+     fill="none" stroke="currentColor"><defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7"
+  markerHeight="7" orient="auto-start-reverse">
+  <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs><text x="60" y="30" font-size="11.5" text-anchor="start" font-weight="600" font-family="IBM Plex Mono, monospace">k 循环：acc 在寄存器里一路累加</text><rect x="60" y="44" width="146" height="40" rx="3" fill="var(--b-col)" stroke="var(--b-col)" stroke-width="1" opacity="0.18"/><text x="133" y="62" font-size="10.5" text-anchor="middle" font-family="IBM Plex Mono, monospace">k 窗口 0</text><text x="133" y="77" font-size="8.5" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">搬+读+MMA</text><rect x="210" y="44" width="146" height="40" rx="3" fill="var(--b-col)" stroke="var(--b-col)" stroke-width="1" opacity="0.18"/><text x="283" y="62" font-size="10.5" text-anchor="middle" font-family="IBM Plex Mono, monospace">k 窗口 1</text><text x="283" y="77" font-size="8.5" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">搬+读+MMA</text><rect x="360" y="44" width="42" height="40" rx="3" fill="var(--b-col)" stroke="var(--b-col)" stroke-width="1" opacity="0.18"/><text x="381" y="62" font-size="10.5" text-anchor="middle" font-family="IBM Plex Mono, monospace">⋯</text><text x="381" y="77" font-size="8.5" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace"></text><rect x="406" y="44" width="146" height="40" rx="3" fill="var(--b-col)" stroke="var(--b-col)" stroke-width="1" opacity="0.18"/><text x="479" y="62" font-size="10.5" text-anchor="middle" font-family="IBM Plex Mono, monospace">最后一窗</text><text x="479" y="77" font-size="8.5" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">搬+读+MMA</text><rect x="60" y="92" width="492" height="14" rx="3" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.25"/><text x="66" y="102" font-size="9.5" text-anchor="start" fill="var(--c-col)" font-family="IBM Plex Mono, monospace">acc 一直在寄存器里，中间一次都没落地</text><line x1="552" y1="38" x2="552" y2="118" stroke="var(--accent)" stroke-width="1" stroke-dasharray="4 3"/><text x="560" y="34" font-size="10.5" text-anchor="start" fill="var(--accent)" font-weight="600" font-family="IBM Plex Mono, monospace">acc 到此就是终值</text><rect x="562" y="44" width="180" height="40" rx="3" fill="var(--a-col)" stroke="var(--a-col)" stroke-width="1" opacity="0.2"/><text x="652" y="62" font-size="10.5" text-anchor="middle" font-family="IBM Plex Mono, monospace">第四步：写回</text><text x="652" y="77" font-size="8.5" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">每条 lane 64 次 store</text><rect x="548" y="128" width="150" height="28" rx="3" fill="none" stroke="var(--fg-faint)" stroke-width="1" stroke-dasharray="4 3"/><text x="623" y="146" font-size="10.5" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">barrier？</text><line x1="554" y1="152" x2="692" y2="132" stroke="var(--c-col)" stroke-width="1.6"/><text x="710" y="146" font-size="11" text-anchor="start" fill="var(--c-col)" font-weight="600" font-family="IBM Plex Mono, monospace">不需要 —— 代码里也确实没有</text><text x="74" y="182" font-size="10.5" text-anchor="start" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">· acc 是私有寄存器，没有跨线程可见性问题</text><text x="74" y="200" font-size="10.5" text-anchor="start" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">· 每条 lane 只写自己那 64 格，地址互不重叠</text><text x="74" y="218" font-size="10.5" text-anchor="start" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">· acc → store 是线程内的寄存器依赖，记分板管</text><text x="60" y="250" font-size="11" text-anchor="start" font-weight="600" font-family="IBM Plex Mono, monospace">循环末尾那个 __syncthreads() 是给 LDS 复用用的（下一轮要覆盖），和 acc 无关</text></svg>
+    <figcaption>第四步前后的时间线。<code>acc</code> 在整个 k 循环里一路在寄存器中累加，中间一次都没有落地；循环一退出就是终值，直接 store。<strong>写回前没有 barrier，也不需要</strong>。</figcaption>
+  </figure>
+  <p>代码里也确实没有。<code>mma_teach_256.cu</code> 第 128–131 行：</p>
+<pre><code>            acc[m][n] = __builtin_mxc_mma_16x16x16i8(af[m][c][w], bf[n][c][w],
+                                                     acc[m][n]);
+    __syncthreads();        <span class="cmt">// ← 128 行：这是循环体里的最后一句</span>
+  }                         <span class="cmt">// ← 129 行：k 循环到此结束</span>
+                            <span class="cmt">// ← 130 行：空行。没有 barrier。</span>
+  // ---- 4. 写回 ----      <span class="cmt">// ← 131 行：直接开始写</span></code></pre>
+  <div class="note"><p>
+    <strong>128 行那个 <code>__syncthreads()</code> 容易被误会成「等 acc 算完」。</strong>
+    它不是。它在<strong>循环体内</strong>，作用是「下一轮要覆盖 LDS 了，先确认这一轮所有人都读完」——
+    管的是 <code>As</code>/<code>Bs</code>，和 <code>acc</code> 一点关系都没有。
+    最后一轮执行的那次，对写回其实没有任何作用。
+  </p></div>
+  <p>那么「等」这件事到底在哪一层发生？分三层看，不要混：</p>
+  <div class="tw"><table>
+    <thead><tr><th>层次</th><th>要不要等</th><th>靠什么</th></tr></thead>
+    <tbody>
+      <tr><td style="white-space:normal">同一个 <code>acc[m][n]</code> 上的连续 MMA</td>
+          <td><strong>要</strong></td>
+          <td style="white-space:normal">串行依赖（后一条吃前一条的结果），<strong>硬件记分板自动处理</strong>，不用写一个字</td></tr>
+      <tr><td style="white-space:normal">同一条 MMA 里的 64 条 lane</td>
+          <td><strong>天然同步</strong></td>
+          <td style="white-space:normal">一条 wave 共用一个 PC，这条指令本身就是整个 wave 一起执行的，不存在「有的 lane 先到」</td></tr>
+      <tr><td style="white-space:normal">acc 终值 → 第四步 store</td>
+          <td>不要</td>
+          <td style="white-space:normal">线程内的寄存器依赖，同样是记分板。<strong>跨线程无依赖</strong>，所以不需要 barrier</td></tr>
+      <tr><td style="white-space:normal">不同 wave 之间</td>
+          <td>不要</td>
+          <td style="white-space:normal">4 个 wave 各管各的 <code>64×64</code>，写的 C 区域<strong>互不重叠</strong></td></tr>
+    </tbody>
+  </table></div>
+  <div class="note"><p>
+    <strong>一句话：要等的那一层硬件已经替你等了，不用等的那几层本来就没有依赖。</strong>
+    写回前真正的前提只有一个 —— <strong>归属公式是双射</strong>：
+    <code>(wave, lane, m, n, e)</code> 到 C 元素是一一对应的，
+    所以 256 个线程同时往 C 里写，<strong>没有两条 lane 会撞到同一个地址</strong>。
+    这一条是 <code>prov_256</code> 探针逐元素验过的。
+  </p></div>
+</section>
+
+<section>
+  <h2>05</h2>
+  <h3>真机证据</h3>
+  <p>上面每一条都不是从文档推的，是探针 dump 出来的：</p>
+  <div class="tw"><table>
+    <thead><tr><th>结论</th><th>怎么验的</th></tr></thead>
+    <tbody>
+      <tr><td style="white-space:normal">归属公式是双射，256 线程写 C 不撞车</td>
+          <td style="white-space:normal"><code>prov_256</code> 把 <code>(bid,tid,m,n,e)</code> 编码进 C 再读回：<strong>65536 个元素全覆盖、无重复</strong></td></tr>
+      <tr><td style="white-space:normal"><code>C[5][3]</code> 归 lane 19，而 lane 19 没见过 A 的第 5 行</td>
+          <td style="white-space:normal"><code>./mma_teach_256 partial 5 3</code> 打印归属 <strong>block 0 / wave 0 / tile(0,0) / lane 19 / e=1</strong>，16 条部分和累到 <strong>−285</strong>，与 CPU 参考相等</td></tr>
+      <tr><td style="white-space:normal">acc 是一路累加上来的，中间没落地</td>
+          <td style="white-space:normal"><code>partial_256</code> 探针逐条 MMA 读 <code>acc[2][1][0]</code>，16 条部分和首尾相接，末项 = <code>C[164][81]</code> 的终值 <strong>−234</strong></td></tr>
+      <tr><td style="white-space:normal">写回前没有 barrier</td>
+          <td style="white-space:normal">源码第 128–131 行；<code>256³</code> 与 <code>1024³</code> 全部 PASS，0 不符</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<footer>
+  <p>
+    排布细节见<strong>《一条 MMA 指令，从 16B 搬运到输出》</strong>（三张座位表、lane 17 的 64 个落点两张图即出自该文）。
+    探针：<code>./mma_teach_256 partial &lt;row&gt; &lt;col&gt;</code> 看某个 C 元素的归属与逐条部分和，
+    <code>./mma_teach_256 &lt;row&gt; &lt;col&gt;</code> 看完整来源链。
+  </p>
+</footer>
+
+</div>
+</body>
+</html>
