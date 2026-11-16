@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>双缓冲为什么反而更慢</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+  /* 布局:单栏,交互块满宽,所有坐标与计数用等宽字体 */
+  :root {
+    --bg: #f7f8fa; --surface: #fff; --surface-2: #eceff4;
+    --fg: #16202c; --fg-dim: #556379; --fg-faint: #8694a7;
+    --line: #d6dce5; --accent: #0a6fb5; --accent-soft: #e3eff8;
+    --a-col: #0a6fb5; --b-col: #0f7a52; --c-col: #b5560a;
+    --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+    --sans: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0d1117; --surface: #151b24; --surface-2: #1e2631;
+      --fg: #e4eaf2; --fg-dim: #9babc0; --fg-faint: #67788d;
+      --line: #2b3643; --accent: #4caae8; --accent-soft: #15293a;
+      --a-col: #4caae8; --b-col: #43c494; --c-col: #e09243;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d1117; --surface: #151b24; --surface-2: #1e2631;
+    --fg: #e4eaf2; --fg-dim: #9babc0; --fg-faint: #67788d;
+    --line: #2b3643; --accent: #4caae8; --accent-soft: #15293a;
+    --a-col: #4caae8; --b-col: #43c494; --c-col: #e09243;
+    color-scheme: dark;
+  }
+
+  body {
+    background: var(--bg); color: var(--fg); font-family: var(--sans);
+    font-size: 15px; line-height: 1.68;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 0 72px;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; }
+
+  header { padding-block: 40px 26px; border-bottom: 1px solid var(--line); }
+  h1 { font-size: clamp(26px, 5vw, 38px); line-height: 1.14; margin: 0 0 14px;
+       font-weight: 700; letter-spacing: -0.02em; text-wrap: balance; }
+  .lede { font-size: 17px; color: var(--fg-dim); max-width: 60ch; margin: 0; }
+
+  section { padding-block: 36px 6px; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em;
+       color: var(--fg-faint); font-weight: 600; margin: 0 0 6px; font-family: var(--mono); }
+  h3 { font-size: 22px; margin: 0 0 15px; font-weight: 650; letter-spacing: -0.01em; text-wrap: balance; }
+  h4 { font-size: 15.5px; margin: 24px 0 9px; font-weight: 600; }
+  p { margin: 0 0 14px; max-width: 70ch; }
+  ul, ol { margin: 0 0 15px; padding-left: 21px; max-width: 70ch; }
+  li { margin-bottom: 6px; }
+  code { font-family: var(--mono); font-size: 0.89em; background: var(--surface-2);
+         padding: 1px 5px; border-radius: 4px; border: 1px solid var(--line); }
+  pre { font-family: var(--mono); font-size: 12.5px; line-height: 1.62;
+        background: var(--surface); border: 1px solid var(--line); border-radius: 7px;
+        padding: 14px 16px; overflow-x: auto; margin: 0 0 16px; }
+  pre code { background: none; border: none; padding: 0; font-size: inherit; }
+  .cmt { color: var(--fg-faint); }
+  .kw { color: var(--accent); }
+  strong { font-weight: 650; }
+
+  .panel { background: var(--surface); border: 1px solid var(--line);
+           border-radius: 9px; padding: 18px; margin: 0 0 18px; }
+
+  .note { border-left: 3px solid var(--accent); background: var(--accent-soft);
+          padding: 12px 15px; border-radius: 0 6px 6px 0; margin: 0 0 18px; font-size: 14.5px; }
+  .note p:last-child { margin-bottom: 0; }
+
+  /* ---- 16x16 网格 ---- */
+  .g16 { display: grid; grid-template-columns: repeat(16, 1fr); gap: 1.5px;
+         aspect-ratio: 1; }
+  .g16 > div { background: var(--surface-2); border-radius: 2px; transition: background .1s; }
+  .gA > div.on { background: var(--a-col); }
+  .gB > div.on { background: var(--b-col); }
+  .gC > div.on { background: var(--c-col); }
+  .gC > div.sel { outline: 2px solid var(--fg); outline-offset: 1px; z-index: 2; }
+
+  .frags { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+  .fb h5 { margin: 0 0 2px; font-size: 13px; font-weight: 600; font-family: var(--mono); }
+  .fb .sub { font-size: 11px; color: var(--fg-faint); margin: 0 0 8px;
+             font-family: var(--mono); line-height: 1.4; min-height: 2.8em; }
+  .fb.a h5 { color: var(--a-col); }
+  .fb.b h5 { color: var(--b-col); }
+  .fb.c h5 { color: var(--c-col); }
+  .axl { display: flex; justify-content: space-between; font-family: var(--mono);
+         font-size: 10px; color: var(--fg-faint); margin-top: 4px; }
+
+  /* ---- lane 选择 ---- */
+  .lanes { display: grid; grid-template-columns: repeat(16, 1fr); gap: 2px; }
+  .lanes button { font-family: var(--mono); font-size: 9.5px; padding: 3px 0; aspect-ratio: 1.6;
+    background: var(--surface-2); color: var(--fg-faint); border: 1px solid var(--line);
+    border-radius: 3px; cursor: pointer; line-height: 1; }
+  .lanes button:hover { color: var(--fg); }
+  .lanes button[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .lanes button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  .ctrls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
+  button.seg { font-family: var(--mono); font-size: 12px; padding: 5px 11px;
+    background: var(--surface-2); color: var(--fg-dim); border: 1px solid var(--line);
+    border-radius: 5px; cursor: pointer; }
+  button.seg:hover { color: var(--fg); border-color: var(--fg-faint); }
+  button.seg:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .readout { font-family: var(--mono); font-size: 12.5px; line-height: 1.8;
+    background: var(--surface-2); border: 1px solid var(--line);
+    border-radius: 7px; padding: 14px 16px; overflow-x: auto; }
+  .readout .k { color: var(--fg-faint); display: inline-block; min-width: 12ch; }
+  .readout .hi { color: var(--accent); font-weight: 600; }
+  .readout .ca { color: var(--a-col); font-weight: 600; }
+  .readout .cb { color: var(--b-col); font-weight: 600; }
+  .readout .cc { color: var(--c-col); font-weight: 600; }
+  .readout hr { border: none; border-top: 1px dashed var(--line); margin: 9px 0; }
+
+  .split { display: grid; grid-template-columns: minmax(0, 300px) minmax(0, 1fr); gap: 18px; align-items: start; }
+  @media (max-width: 680px) { .split { grid-template-columns: minmax(0, 1fr); } }
+
+  .tw { overflow-x: auto; margin: 0 0 18px; border: 1px solid var(--line); border-radius: 7px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { background: var(--surface-2); font-weight: 600; font-size: 11.5px;
+       text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-dim); }
+  tr:last-child td { border-bottom: none; }
+  td.n { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  /* ---- 搬运流程图 ---- */
+  .flow { display: grid; gap: 10px; font-family: var(--mono); font-size: 12px; }
+  .frow { display: grid; grid-template-columns: 7ch 1fr; gap: 12px; align-items: center; }
+  .frow .lbl { color: var(--fg-faint); text-align: right; }
+  .bar { display: flex; gap: 2px; }
+  .bar i { height: 22px; flex: 1; border-radius: 2px; display: grid; place-items: center;
+           font-size: 9.5px; color: #fff; font-style: normal; }
+  .arrow { text-align: center; color: var(--fg-faint); font-size: 11px; }
+
+  footer { margin-top: 42px; padding-top: 20px; border-top: 1px solid var(--line);
+           font-size: 13px; color: var(--fg-faint); }
+  .tag { display: inline-block; font-family: var(--mono); font-size: 10.5px;
+         padding: 2px 7px; border-radius: 4px; background: var(--surface-2);
+         border: 1px solid var(--line); color: var(--fg-dim); margin-right: 5px; }
+  .tag.v { background: var(--b-col); color: #fff; border-color: var(--b-col); }
+  /* ---- 手绘 SVG 图 ---- */
+  figure { margin: 0; }
+  figure svg { max-width: 100%; min-width: 420px; height: auto;
+               display: block; margin: 0 auto; }
+  figcaption { font-size: 13px; color: var(--fg-dim); margin-top: 12px;
+               line-height: 1.55; max-width: 70ch; }
+  .cmap { width: 100%; max-width: 340px; aspect-ratio: 1; display: block;
+           image-rendering: pixelated; border: 1px solid var(--line);
+           border-radius: 6px; cursor: crosshair; }
+  .fig-wrap { background: var(--surface); border: 1px solid var(--line);
+              border-radius: 9px; padding: 16px 18px; margin: 0 0 20px; overflow-x: auto; }
+</style>
+<style>
+@media print {
+  :root, :root[data-theme="light"] {
+    --bg: #fff; --surface: #fff; --surface-2: #f2f4f7;
+    --fg: #16202c; --fg-dim: #4a5869; --fg-faint: #78879a;
+    --line: #c7cfda; --accent: #0a6fb5; --accent-soft: #eaf2f9;
+    --a-col: #0a6fb5; --b-col: #0f7a52; --c-col: #b5560a;
+    color-scheme: light;
+  }
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  @page { size: A4; margin: 14mm 12mm; }
+  body { font-size: 11.5px; line-height: 1.6; padding: 0 !important; background: #fff; }
+  .wrap { max-width: none; margin: 0; }
+  header { padding-block: 0 18px; }
+  section { break-before: page; }
+  section:first-of-type { break-before: avoid; }
+  h1, h2, h3, h4 { break-after: avoid; }
+  figure, .fig-wrap, table, .note, .split { break-inside: avoid; }
+  figure svg, .fig-wrap svg { max-height: 215mm; }
+  pre { font-size: 9px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+  footer { break-before: page; }
+  a { color: var(--accent); text-decoration: none; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>双缓冲为什么反而更慢</h1>
+  <p class="lede">
+    上一篇把 LDS 读的 bank 冲突消掉之后，瓶颈换成了「搬运和计算没有重叠」。
+    教科书答案是<strong>双缓冲</strong>：一个窗口在算，另一个窗口在搬。
+    我把它做出来了，<strong>而且它比单缓冲慢 1.6 倍</strong>。
+    原因不在流水线本身，在<strong>它要的那第二份 LDS</strong> ——
+    64KB 一满，每个 CU 就只驻留得下一个 block。
+    真正该做的是一行位置的改动：<strong>把搬运的发射挪到 LDS 读完之后</strong>，
+    单缓冲照样重叠，一个字节额外 LDS 都不要。
+    <code>4096³</code>：<strong>153.5 → 292 TOPS</strong>。
+  </p>
+</header>
+
+<section>
+  <h2>00</h2>
+  <h3>先给结论</h3>
+  <div class="tw"><table>
+    <thead><tr><th>组合</th><th>LDS/block</th><th>驻留 block/CU</th><th>4096³</th><th>TOPS</th><th>相对</th></tr></thead>
+    <tbody>
+      <tr><td>TK=256 顶部发射<br><span class="sub">上一篇的终点，基准</span></td><td class="n">64 KB</td><td class="n">1</td><td class="n">893 us</td><td class="n">153.5</td><td class="n">1.000×</td></tr>
+      <tr><td>TK=256 单缓冲晚发射</td><td class="n">64 KB</td><td class="n">1</td><td class="n">743 us</td><td class="n">185.0</td><td class="n">1.20×</td></tr>
+      <tr><td>TK=128 顶部发射</td><td class="n">32 KB</td><td class="n"><strong>2</strong></td><td class="n">584 us</td><td class="n">235.3</td><td class="n">1.53×</td></tr>
+      <tr><td><strong>TK=128 单缓冲晚发射</strong></td><td class="n">32 KB</td><td class="n"><strong>2</strong></td><td class="n"><strong>427–515 us</strong></td><td class="n"><strong>267–322</strong></td><td class="n"><strong>1.73–2.09×</strong></td></tr>
+      <tr><td>TK=128 <strong>双缓冲</strong></td><td class="n">64 KB</td><td class="n">1</td><td class="n">733 us</td><td class="n">187.6</td><td class="n">1.22×</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note"><p>
+    <strong>双缓冲（733 us）比单缓冲晚发射最差的那次（515 us）还慢 1.42 倍。</strong>
+    两者的 LDS 用量是 64KB 对 32KB，驻留 block 数是 1 对 2 ——
+    这是实测的（<code>mcOccupancyMaxActiveBlocksPerMultiprocessor</code>），不是推的。
+    <strong>双缓冲买到的 block 内重叠，远不够赔它损失的跨 block 重叠。</strong>
+  </p></div>
+</section>
+
+<section>
+  <h2>01</h2>
+  <h3>先看清「没有重叠」长什么样</h3>
+  <p>
+    上一篇结尾那版代码的形状是这样的：
+  </p>
+<pre><code>for (每个 k 窗口) {
+    发异步读 -&gt; buf          <span class="cmt">// 16 条 BSM</span>
+    arrive_gvmcnt(0);        <span class="cmt">// ← 立刻等全部回来</span>
+    barrier;
+    读 buf -&gt; 寄存器
+    256 条 MMA
+    barrier;
+}</code></pre>
+  <p>
+    <strong>发出去和等回来之间什么都没有。</strong>异步搬运的本事是「发了先不管，去干别的」，
+    可这里发完下一句就是等，和同步拷贝没有区别 ——
+    这也正是上一篇里「异步单独上只值 1.1%」的原因。
+  </p>
+  <p>要让它赚到钱，得在「发」和「等」之间塞进计算。有两条路：</p>
+  <figure class="fig-wrap">
+    <svg viewBox="0 0 1000 402" role="img" aria-label="三种搬运模式在一个 k 窗口里的时间线对比，顶部发射的搬运完全暴露"
+     style="width:100%;max-width:1000px;height:auto;display:block;margin:0 auto"
+     fill="none" stroke="currentColor"><defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6"
+  markerHeight="6" orient="auto-start-reverse">
+  <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs><text x="172" y="73" font-size="12" text-anchor="end" font-weight="600" font-family="IBM Plex Mono, monospace">① 顶部发射</text><text x="172" y="89" font-size="9.5" text-anchor="end" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">上一篇的样子</text><text x="172" y="103" font-size="9.5" text-anchor="end" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">TK=256，1 块缓冲</text><rect x="186" y="56" width="34" height="30" rx="3" fill="var(--c-col)" stroke="var(--c-col)" stroke-width="1.2" opacity="0.85"/><text x="203" y="76" font-size="10.5" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">发射</text><rect x="223" y="56" width="150" height="30" rx="3" fill="none" stroke="var(--fg-faint)" stroke-width="1" opacity="1" stroke-dasharray="4 3"/><text x="298" y="76" font-size="10.5" text-anchor="middle" fill="var(--fg-dim)" font-weight="600" font-family="IBM Plex Mono, monospace">等 搬 运 回 来</text><rect x="376" y="56" width="16" height="30" rx="3" fill="var(--surface-2)" stroke="var(--fg-faint)" stroke-width="0.8"/><text x="384" y="76" font-size="11" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">⎸</text><rect x="395" y="56" width="52" height="30" rx="3" fill="var(--a-col)" stroke="var(--a-col)" stroke-width="1.2" opacity="0.85"/><text x="421" y="76" font-size="10.5" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">读 LDS</text><rect x="450" y="56" width="150" height="30" rx="3" fill="var(--b-col)" stroke="var(--b-col)" stroke-width="1.2" opacity="0.85"/><text x="525" y="76" font-size="10.5" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">MMA</text><rect x="603" y="56" width="16" height="30" rx="3" fill="var(--surface-2)" stroke="var(--fg-faint)" stroke-width="0.8"/><text x="611" y="76" font-size="11" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">⎸</text><rect x="186" y="96" width="187" height="14" rx="3" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.28"/><text x="191" y="106" font-size="9" text-anchor="start" fill="var(--c-col)" font-family="IBM Plex Mono, monospace">搬运在飞</text><text x="383" y="106" font-size="10" text-anchor="start" fill="var(--c-col)" font-family="IBM Plex Mono, monospace">搬运全程暴露：发出去之后立刻就等，中间没有任何计算</text><text x="172" y="181" font-size="12" text-anchor="end" font-weight="600" font-family="IBM Plex Mono, monospace">② 单缓冲晚发射</text><text x="172" y="197" font-size="9.5" text-anchor="end" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">不要额外 LDS</text><text x="172" y="211" font-size="9.5" text-anchor="end" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">TK=256/128，1 块缓冲</text><rect x="186" y="164" width="18" height="30" rx="3" fill="none" stroke="var(--fg-faint)" stroke-width="1" opacity="1" stroke-dasharray="4 3"/><text x="195" y="184" font-size="10.5" text-anchor="middle" fill="var(--fg-dim)" font-weight="600" font-family="IBM Plex Mono, monospace">等</text><rect x="207" y="164" width="16" height="30" rx="3" fill="var(--surface-2)" stroke="var(--fg-faint)" stroke-width="0.8"/><text x="215" y="184" font-size="11" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">⎸</text><rect x="226" y="164" width="52" height="30" rx="3" fill="var(--a-col)" stroke="var(--a-col)" stroke-width="1.2" opacity="0.85"/><text x="252" y="184" font-size="10.5" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">读 LDS</text><rect x="281" y="164" width="16" height="30" rx="3" fill="var(--surface-2)" stroke="var(--fg-faint)" stroke-width="0.8"/><text x="289" y="184" font-size="11" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">⎸</text><rect x="300" y="164" width="34" height="30" rx="3" fill="var(--c-col)" stroke="var(--c-col)" stroke-width="1.2" opacity="0.85"/><text x="317" y="184" font-size="10.5" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">发射</text><rect x="337" y="164" width="150" height="30" rx="3" fill="var(--b-col)" stroke="var(--b-col)" stroke-width="1.2" opacity="0.85"/><text x="412" y="184" font-size="10.5" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">MMA</text><rect x="300" y="204" width="187" height="14" rx="3" fill="var(--b-col)" stroke="none" stroke-width="1" opacity="0.28"/><text x="305" y="214" font-size="9" text-anchor="start" fill="var(--b-col)" font-family="IBM Plex Mono, monospace">搬运在飞</text><text x="497" y="214" font-size="10" text-anchor="start" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">搬运和 MMA 重叠；代价是中间那个 barrier（确认大家都读完才能覆盖）</text><text x="172" y="289" font-size="12" text-anchor="end" font-weight="600" font-family="IBM Plex Mono, monospace">③ 双缓冲</text><text x="172" y="305" font-size="9.5" text-anchor="end" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">要两份 LDS</text><text x="172" y="319" font-size="9.5" text-anchor="end" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">TK=128，2 块缓冲</text><rect x="186" y="272" width="18" height="30" rx="3" fill="none" stroke="var(--fg-faint)" stroke-width="1" opacity="1" stroke-dasharray="4 3"/><text x="195" y="292" font-size="10.5" text-anchor="middle" fill="var(--fg-dim)" font-weight="600" font-family="IBM Plex Mono, monospace">等</text><rect x="207" y="272" width="16" height="30" rx="3" fill="var(--surface-2)" stroke="var(--fg-faint)" stroke-width="0.8"/><text x="215" y="292" font-size="11" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">⎸</text><rect x="226" y="272" width="34" height="30" rx="3" fill="var(--c-col)" stroke="var(--c-col)" stroke-width="1.2" opacity="0.85"/><text x="243" y="292" font-size="10.5" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">发射</text><rect x="263" y="272" width="52" height="30" rx="3" fill="var(--a-col)" stroke="var(--a-col)" stroke-width="1.2" opacity="0.85"/><text x="289" y="292" font-size="10.5" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">读 LDS</text><rect x="318" y="272" width="150" height="30" rx="3" fill="var(--b-col)" stroke="var(--b-col)" stroke-width="1.2" opacity="0.85"/><text x="393" y="292" font-size="10.5" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">MMA</text><rect x="226" y="312" width="242" height="14" rx="3" fill="var(--b-col)" stroke="none" stroke-width="1" opacity="0.28"/><text x="231" y="322" font-size="9" text-anchor="start" fill="var(--b-col)" font-family="IBM Plex Mono, monospace">搬运在飞</text><text x="478" y="322" font-size="10" text-anchor="start" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">发射能提到读之前，还少一个 barrier —— 看起来最漂亮</text><text x="172" y="34" font-size="10" text-anchor="end" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">一个 k 窗口里的时间线 →</text><text x="316" y="34" font-size="10" text-anchor="start" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">方块宽度是示意，不是实测比例</text><text x="500" y="384" font-size="11.5" text-anchor="middle" font-weight="600" font-family="IBM Plex Mono, monospace">② 和 ③ 的差别只有两处：发射能不能提到「读 LDS」之前，以及中间那个 barrier 要不要</text></svg>
+    <figcaption>一个 k 窗口里的时间线。虚线框是「在等」，实心框是真在干活，底下那条浅色带子是搬运在飞的区间。①的带子底下空无一物 —— 搬运全程暴露。②把发射挪到读完之后，带子盖住了 MMA。③因为写的是另一块地，发射还能再往前提一格，而且中间那个 barrier 可以省掉。</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>02</h2>
+  <h3>单缓冲也能重叠：把发射挪到读完之后</h3>
+  <p>
+    这是最容易被跳过的一步。直觉上「要重叠就得双缓冲」，
+    但其实<strong>单缓冲也能重叠</strong>，只要想清楚一件事：
+  </p>
+  <div class="note"><p>
+    <strong>LDS 这块地，在「读进寄存器」那一刻之后就没人要了。</strong>
+    后面 256 条 MMA 全在寄存器上跑，一次都不回头碰 LDS。
+    所以读完之后就可以往上覆盖下一窗 —— 不需要第二块地。
+  </p></div>
+  <p>唯一要小心的是：<strong>得等所有人都读完</strong>，才能覆盖。所以中间多一个 barrier：</p>
+<pre><code>for (每个 k 窗口) {
+    arrive_gvmcnt(0);        <span class="cmt">// 等上一轮发的那批（不是刚发的）</span>
+    barrier;                 <span class="cmt">// barrier A</span>
+    读 buf -&gt; 寄存器
+    barrier;                 <span class="cmt">// barrier B：确认大家都读完了，可以覆盖</span>
+    发异步读 -&gt; buf           <span class="cmt">// ← 挪到这里</span>
+    256 条 MMA               <span class="cmt">// ← 和上面那批搬运重叠</span>
+}</code></pre>
+  <p>
+    改动只是<strong>把发射那几行往下挪了两行</strong>，外加循环前预取第 0 窗。
+    LDS 一个字节没多要，<code>TK=256</code> 下就值 <strong>1.20×</strong>。
+  </p>
+</section>
+
+<section>
+  <h2>03</h2>
+  <h3>双缓冲：看起来更漂亮，代价在别处</h3>
+  <p>双缓冲就是拿第二块地换掉那个 barrier，顺便让发射能提得更早：</p>
+<pre><code>for (每个 k 窗口) {
+    cur = tk &amp; 1;  nxt = cur ^ 1;
+    arrive_gvmcnt(0);
+    barrier;
+    发异步读 -&gt; buf[nxt]      <span class="cmt">// ← 写的是另一块地，读之前就能发</span>
+    读 buf[cur] -&gt; 寄存器
+    256 条 MMA               <span class="cmt">// barrier B 不需要了</span>
+}</code></pre>
+  <p>
+    纸面上每项都更好：发射更早、重叠更长、每窗少一个 barrier。
+    问题是<strong>它要两份 LDS</strong>，而这个 kernel 的 LDS 早就顶满了：
+  </p>
+<pre><code>TILE_K = 256：一份缓冲 2 × 128 × 256 = 65536 B  <span class="cmt">// 正好是上限，双缓冲放不下</span>
+TILE_K = 128：一份缓冲 2 × 128 × 128 = 32768 B  <span class="cmt">// 两份 65536 B，正好用满</span></code></pre>
+  <p>
+    所以双缓冲<strong>必须先把 <code>TILE_K</code> 砍到 128</strong>。
+    砍 <code>TILE_K</code> 不改变总工作量（窗口数翻倍、每窗 MMA 和 LDS 读都减半），
+    但它改变了一件要命的事 —— 看下一节。
+  </p>
+</section>
+
+<section>
+  <h2>04</h2>
+  <h3>真正的账：那 64KB 买的是 block，不是缓冲</h3>
+  <p>
+    LDS 是<strong>按 block 整块分配</strong>的，所以一个 block 用多少 LDS，
+    直接决定一个 CU 上能同时驻留几个 block。这是实测值：
+  </p>
+<pre><code>$ ./mma_pipeline_256 occ
+
+设备 MetaX C500：104 个 CU，每 block LDS 上限 65536 B
+
+  组合                    LDS/block 驻留 block/CU
+  TK=256 顶部发射(无重叠)      65536              1
+  TK=256 单缓冲晚发射          65536              1
+  TK=128 顶部发射(无重叠)      32768              2
+  TK=128 单缓冲晚发射          32768              2
+  TK=128 双缓冲                65536              1</code></pre>
+  <figure class="fig-wrap">
+    <svg viewBox="0 0 1000 334" role="img" aria-label="同样 64KB 的 LDS，单缓冲装得下两个 block，双缓冲只装得下一个"
+     style="width:100%;max-width:1000px;height:auto;display:block;margin:0 auto"
+     fill="none" stroke="currentColor"><defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6"
+  markerHeight="6" orient="auto-start-reverse">
+  <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs><text x="480" y="30" font-size="12" text-anchor="middle" font-weight="600" font-family="IBM Plex Mono, monospace">一个 CU 的 64KB LDS</text><text x="784" y="30" font-size="10" text-anchor="start" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">驻留 block/CU</text><text x="910" y="30" font-size="10" text-anchor="start" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">4096³ TOPS</text><text x="186" y="78" font-size="11.5" text-anchor="end" font-weight="400" font-family="IBM Plex Mono, monospace">TK=256 单缓冲</text><rect x="200" y="52" width="558" height="54" rx="3" fill="var(--a-col)" stroke="var(--a-col)" stroke-width="1.2" opacity="0.85"/><text x="480" y="83" font-size="10.5" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">block 0 的唯一缓冲  64KB</text><text x="820" y="83" font-size="17" text-anchor="middle" fill="var(--c-col)" font-weight="700" font-family="IBM Plex Mono, monospace">1</text><text x="950" y="83" font-size="12" text-anchor="middle" fill="var(--fg-dim)" font-weight="600" font-family="IBM Plex Mono, monospace">153.5</text><text x="480" y="121" font-size="10" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">一个 block 就吃满，装不下第二个</text><text x="186" y="164" font-size="11.5" text-anchor="end" font-weight="600" font-family="IBM Plex Mono, monospace">TK=128 单缓冲</text><rect x="200" y="138" width="278" height="54" rx="3" fill="var(--a-col)" stroke="var(--a-col)" stroke-width="1.2" opacity="0.85"/><text x="340" y="169" font-size="10.5" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">block 0  32KB</text><rect x="480" y="138" width="278" height="54" rx="3" fill="var(--b-col)" stroke="var(--b-col)" stroke-width="1.2" opacity="0.85"/><text x="620" y="169" font-size="10.5" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">block 1  32KB</text><text x="820" y="169" font-size="17" text-anchor="middle" fill="var(--b-col)" font-weight="700" font-family="IBM Plex Mono, monospace">2</text><text x="950" y="169" font-size="12" text-anchor="middle" fill="var(--b-col)" font-weight="600" font-family="IBM Plex Mono, monospace">292（中位）</text><text x="480" y="207" font-size="10" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">省下的一半 LDS 换来第二个 block</text><text x="186" y="250" font-size="11.5" text-anchor="end" font-weight="400" font-family="IBM Plex Mono, monospace">TK=128 双缓冲</text><rect x="200" y="224" width="278" height="54" rx="3" fill="var(--a-col)" stroke="var(--a-col)" stroke-width="1.2" opacity="0.85"/><text x="340" y="255" font-size="10.5" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">block 0 · 缓冲 A  32KB</text><rect x="480" y="224" width="278" height="54" rx="3" fill="var(--a-col)" stroke="var(--a-col)" stroke-width="1.2" opacity="0.85"/><text x="620" y="255" font-size="10.5" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">block 0 · 缓冲 B  32KB</text><text x="820" y="255" font-size="17" text-anchor="middle" fill="var(--c-col)" font-weight="700" font-family="IBM Plex Mono, monospace">1</text><text x="950" y="255" font-size="12" text-anchor="middle" fill="var(--fg-dim)" font-weight="600" font-family="IBM Plex Mono, monospace">187.6</text><text x="480" y="293" font-size="10" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">第二份缓冲占掉的，正是第二个 block 的位子</text><text x="480" y="316" font-size="11.5" text-anchor="middle" font-weight="600" font-family="IBM Plex Mono, monospace">第 2 行和第 3 行用掉的 LDS 一样多 —— 差别只在于这 64KB 装的是两个 block，还是一个 block 的两份缓冲</text></svg>
+    <figcaption>一个 CU 的 64KB LDS 怎么分。<strong>第 2 行和第 3 行用掉的总量一模一样</strong>，差别只在于这 64KB 装的是<strong>两个 block</strong>，还是<strong>一个 block 的两份缓冲</strong>。两个 block 可以互相填对方的空隙 —— 一个在等访存时另一个在算，这是硬件自己会做的重叠，不要你写一行代码。双缓冲把这个位子占了，换来的只是同一个 block 内部的重叠。</figcaption>
+  </figure>
+  <div class="note"><p>
+    <strong>所以这笔账是这么算的。</strong>
+    双缓冲买到的是<strong>一个 block 内部</strong>的搬运/计算重叠；
+    它赔掉的是<strong>两个 block 之间</strong>的重叠 ——
+    而后者是硬件白送的，覆盖面还更宽（不光盖搬运，连 MMA 之间的气泡、barrier 的等待都能盖）。
+    在这张卡上，<strong>白送的那个明显更值钱</strong>。
+  </p></div>
+  <p>
+    回头看第 00 节那张表，每一行都能用「驻留几个 block」解释：
+    1 个 block 的三行是 153.5 / 185.0 / 187.6 TOPS，
+    2 个 block 的两行是 235.3 / 267–322 TOPS。
+    <strong>占用率这条线，比流水线写得好不好那条线陡得多。</strong>
+  </p>
+</section>
+
+<section>
+  <h2>05</h2>
+  <h3>一个要说清楚的不稳定</h3>
+  <p>
+    五个组合里有四个跨进程重复得非常死（极差 &lt; 2.2%），
+    但<strong>最快的那个不是</strong>：
+  </p>
+  <div class="tw"><table>
+    <thead><tr><th>组合</th><th>7 次独立进程的 us</th><th>极差</th></tr></thead>
+    <tbody>
+      <tr><td class="n">TK=256 顶部发射</td><td class="n">888.9 ‥ 895.9</td><td class="n">0.8%</td></tr>
+      <tr><td class="n">TK=256 单缓冲晚发射</td><td class="n">742.8 ‥ 743.7</td><td class="n">0.1%</td></tr>
+      <tr><td class="n">TK=128 顶部发射</td><td class="n">583.3 ‥ 595.9</td><td class="n">2.2%</td></tr>
+      <tr><td class="n"><strong>TK=128 单缓冲晚发射</strong></td><td class="n"><strong>426.7 ‥ 514.7</strong></td><td class="n"><strong>20.6%</strong></td></tr>
+      <tr><td class="n">TK=128 双缓冲</td><td class="n">732.3 ‥ 733.3</td><td class="n">0.1%</td></tr>
+    </tbody>
+  </table></div>
+  <p>
+    同一个二进制、同一份输入，只是重启进程，就在 427 和 515 之间跳
+    （样本：427.1 / 427.5 / 426.7 / 470.8 / 472.6 / 486.0 / 514.7）。
+    每次进程<strong>内部</strong>两轮是对得上的（差 &lt; 0.3%），所以不是测量噪声，
+    是这个配置本身对<strong>两个 block 怎么排进 CU</strong>敏感。
+    我没有继续挖下去 —— 要定位得看调度器的落位，这页给不出结论。
+  </p>
+  <div class="note"><p>
+    <strong>为什么这不影响结论。</strong>就算每次都落在最差的 514.7 us，
+    它仍然比双缓冲的 733 us 快 <strong>1.42×</strong>，比基准快 1.73×。
+    名次一次都没变过。所以表里给的是<strong>区间</strong>而不是最好成绩。
+  </p></div>
+</section>
+
+<section>
+  <h2>06</h2>
+  <h3>一路走下来</h3>
+  <div class="tw"><table>
+    <thead><tr><th>做了什么</th><th>4096³ TOPS</th><th>这一步</th><th>累计</th></tr></thead>
+    <tbody>
+      <tr><td>起点：朴素拷贝 + 原始 LDS 布局</td><td class="n">83.3</td><td class="n">—</td><td class="n">1.00×</td></tr>
+      <tr><td>+ XOR swizzle 消 bank 冲突<span class="sub">（上一篇）</span></td><td class="n">152.0</td><td class="n">1.82×</td><td class="n">1.82×</td></tr>
+      <tr><td>+ BSM 异步搬运<span class="sub">（上一篇）</span></td><td class="n">153.5</td><td class="n">1.01×</td><td class="n">1.84×</td></tr>
+      <tr><td>+ 晚发射，让搬运和 MMA 重叠</td><td class="n">185.0</td><td class="n">1.20×</td><td class="n">2.22×</td></tr>
+      <tr><td>+ TILE_K 砍半，换到 2 block/CU</td><td class="n">267–322</td><td class="n">1.44–1.74×</td><td class="n"><strong>3.2–3.9×</strong></td></tr>
+      <tr><td><span class="sub">（试过，更慢，没留）</span>双缓冲</td><td class="n">187.6</td><td class="n">0.58×</td><td class="n">—</td></tr>
+    </tbody>
+  </table></div>
+  <h3 style="margin-top:28px">验证状态</h3>
+  <div class="tw"><table>
+    <thead><tr><th>结论</th><th>凭什么</th><th>状态</th></tr></thead>
+    <tbody>
+      <tr><td>五个组合数值都对</td><td>C500 实跑 <code>256³</code> 与 <code>1024³</code>，对 CPU 参考 0 不符</td><td><strong>已验</strong></td></tr>
+      <tr><td>驻留 block/CU 是 1 / 2 / 1</td><td><code>mcOccupancyMaxActiveBlocksPerMultiprocessor</code> 实测，非估算</td><td><strong>已验</strong></td></tr>
+      <tr><td>双缓冲比单缓冲晚发射慢</td><td>C500 实跑 <code>4096³</code>，双缓冲 733 us vs 单缓冲最差 515 us</td><td><strong>已验</strong></td></tr>
+      <tr><td>晚发射本身值 1.20×</td><td>同 LDS 用量（<code>TK=256</code>，都是 1 block/CU）下的对照</td><td><strong>已验</strong></td></tr>
+      <tr><td>最快那档跨进程 427‥515 us</td><td>7 次独立进程，每次进程内两轮自洽</td><td><strong>已验</strong></td></tr>
+      <tr><td>「慢是因为占用率减半」</td><td>占用率和名次完全同向，但没有 profiler 直接证据</td><td>推论</td></tr>
+      <tr><td>427‥515 的跳变成因</td><td>没有定位</td><td>未知</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note"><p>
+    <strong>下一步该动哪。</strong>既然占用率这么值钱，
+    那就该往「更省 LDS」的方向走，而不是往「更复杂的流水线」走：
+    <code>TILE_K</code> 再砍到 64（16KB/block，可能到 4 block/CU）、
+    或者把 B 矩阵的 LDS 整个省掉改走寄存器。
+    这页都没试。
+  </p></div>
+</section>
+
+<footer>
+  <p>
+    代码：<code>mma_pipeline_256.cu</code>（<code>TILE_K</code> 与搬运模式两个编译期开关，
+    五个组合同源实例化，除这两处外逐字相同）。
+    <code>./mma_pipeline_256 occ</code> 打印占用率，<code>info</code> 打印 LDS 预算，
+    <code>bench</code> 做五路对照。
+    前一篇见<strong>《一个 XOR，把 LDS 读砍掉一半》</strong>。
+  </p>
+</footer>
+
+</div>
+</body>
+</html>
