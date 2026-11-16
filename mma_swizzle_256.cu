@@ -217,8 +217,9 @@ static int hist_used(const int *h) {
   return u;
 }
 
+// tag 的显示宽度约定为 4 列（"原始" / "XOR "），这样三行表头能对齐
 static void print_hist(const char *tag, const int *h) {
-  printf("  %-6s", tag);
+  printf("  %s", tag);
   for (int b = 0; b < BANKS; ++b) printf("%3d", h[b]);
   printf("   用到 %2d/%d bank，最深 %2d -> %2d 拍\n", hist_used(h), BANKS,
          hist_max(h), hist_max(h));
@@ -234,13 +235,13 @@ static void bank_report(void) {
          CHUNK, WAVE * CHUNK, floor_cycles);
 
   printf("=== 第 2 段，一条 LDS 读指令 (base=0, s=0, c=0) 的 bank 深度 ===\n");
-  printf("  %-6s", "bank");
+  printf("  bank");
   for (int b = 0; b < BANKS; ++b) printf("%3d", b);
   printf("\n");
   read_hist(0, 0, 0, 0, h);
   print_hist("原始", h);
   read_hist(1, 0, 0, 0, h);
-  print_hist("XOR", h);
+  print_hist("XOR ", h);
 
   printf("\n=== 遍历全部 (base, s, c) / i 组合，取最坏 ===\n");
   for (int sw = 0; sw < 2; ++sw) {
@@ -403,11 +404,21 @@ int main(int argc, char **argv) {
     printf("正确性   尺寸过大，跳过 CPU 参考\n");
 
   if (bench) {
-    const double tops_p = 2.0 * M * N * K / (p.us * 1e-6) / 1e12;
-    const double tops_x = 2.0 * M * N * K / (x.us * 1e-6) / 1e12;
-    printf("原始布局 %9.3f us   %6.1f TOPS\n", p.us, tops_p);
-    printf("XOR 布局 %9.3f us   %6.1f TOPS   加速 %.3fx\n", x.us, tops_x,
-           p.us / x.us);
+    // 再跑一轮，这次先 XOR 后原始。两轮都跑是为了排掉「先跑的那个吃时钟爬坡」
+    // 的顺序偏差 —— 两轮的加速比接近，结论才算数。
+    Run x2 = run_one<true>(dA, dB, dC, NULL, hC, M, N, K, iters);
+    Run p2 = run_one<false>(dA, dB, dC, NULL, hC, M, N, K, iters);
+    const double flop = 2.0 * M * N * K;
+    printf("        %12s %12s %10s\n", "原始 us", "XOR us", "加速");
+    printf("第 1 轮 %12.3f %12.3f %9.3fx   (先原始)\n", p.us, x.us, p.us / x.us);
+    printf("第 2 轮 %12.3f %12.3f %9.3fx   (先 XOR)\n", p2.us, x2.us,
+           p2.us / x2.us);
+    const double pb = p.us < p2.us ? p.us : p2.us;
+    const double xb = x.us < x2.us ? x.us : x2.us;
+    printf("取各自最快：原始 %.3f us / %.1f TOPS   XOR %.3f us / %.1f TOPS   "
+           "加速 %.3fx\n",
+           pb, flop / (pb * 1e-6) / 1e12, xb, flop / (xb * 1e-6) / 1e12,
+           pb / xb);
   }
 
   free(hA);
