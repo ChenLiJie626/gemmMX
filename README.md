@@ -25,8 +25,8 @@
 | [`docs/C500-int8-MMA-XOR-swizzle.pdf`](docs/) | 同上，16 页 |
 | [`docs/C500-int8-MMA-双缓冲.html`](docs/) | **双缓冲为什么反而更慢**，2 张图。占用率比流水线值钱，153.5 → 292 TOPS |
 | [`docs/C500-int8-MMA-双缓冲.pdf`](docs/) | 同上，8 页 |
-| [`docs/C500-int8-MMA-acc与写回.html`](docs/) | **acc 在哪，第四步要不要等**，5 张图。acc 是私有寄存器但指令是 wave 级集体操作；写回前为什么不要 barrier |
-| [`docs/C500-int8-MMA-acc与写回.pdf`](docs/) | 同上，10 页 |
+| [`docs/C500-int8-MMA-acc与写回.html`](docs/) | **acc 在哪，第四步要不要等**，6 张图。acc 是私有寄存器但指令是 wave 级集体操作；一条 MMA 只跨 16 个 k，终值要 16 条累加；写回前为什么不要 barrier |
+| [`docs/C500-int8-MMA-acc与写回.pdf`](docs/) | 同上，12 页 |
 
 HTML 是自包含的（SVG 内联、样式内联），只有字体走 Google Fonts CDN，离线打开会回落到系统字体。
 浏览器里 Ctrl+P 就能印出与仓库里 PDF 一致的版面。
