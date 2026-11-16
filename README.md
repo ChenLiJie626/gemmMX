@@ -8,6 +8,10 @@
 排布讲清楚之后，顺着同一套下标还能看出一处 LDS bank 冲突，
 所以分支里也带了消冲突的 XOR swizzle 版本和它的图解。
 
+本分支（`kernel-c600`）在教程分支之上只多一个文件：`mma_swizzle_c600.cu`，
+把同一套布局移植到 C600（xcore1500）的 K=32 int8 MMA 上。
+**手上没有 C600 真机，那一份未上机验证** —— 依据、假设和自检见下面「C600 移植」一节。
+
 从 `main` 基线分出，与 [`claude`](https://github.com/ChenLiJie626/gemmMX/tree/claude)、
 [`codex`](https://github.com/ChenLiJie626/gemmMX/tree/codex) 两个实现分支平行。
 
@@ -80,6 +84,7 @@ $MXCC -x maca -O3 mma_teach_256.cu -o mma_teach_256
 | `kernel_test_v1.cu` | tile 128×128×256 | 对照用的工程版（异步拷贝 + `arrive_gvmcnt`）。**需要 MACA SDK 的 `mctlass/arch/maca_memory.h`**，不在本仓库内 |
 | `mma_swizzle_256.cu` | 256×256×256 | **XOR swizzle 版**，搬运走基线的 BSM 异步通路。`template <bool SW, bool ASYNC>` 两个正交开关 = 四个组合，除这两处外逐字相同，所以「异步值多少」和「XOR 值多少」分得开 |
 | **`mma_pipeline_256.cu`** | 256×256×256 | **搬运/计算重叠版**（本分支最快）。`template <int TK, int MODE>` = 五个组合：顶部发射 / 单缓冲晚发射 / 双缓冲 × `TILE_K` 256/128。带 `occ` 子命令直接查每 CU 驻留 block 数 |
+| `mma_swizzle_c600.cu` | 同上 | **C600（xcore1500）移植版**。与 `mma_swizzle_256.cu` 同一套布局，差别只有一条：MMA 用 K=32 的 `__builtin_mxc_mma_16x16x32i8`。`-DMX_ARCH=500` 可退回 K=16。**没有真机，未上机验证** |
 
 数据约定（八个文件一致）：
 
@@ -120,6 +125,87 @@ C: M × N  行主序 int32
 ./mma_pipeline_256                   # 五个组合各对一次 CPU 参考
 ./mma_pipeline_256 bench 4096 4096 4096
 ```
+
+## C600 移植（`mma_swizzle_c600.cu`，未上机）
+
+**没有 C600 真机，这一节里凡是没标「实测」的都是推论。** 之所以还能写出这个
+kernel，是因为两颗芯片对本算子的差别可以收窄到一条指令上。
+
+### 依据
+
+| 事实 | 来源 |
+|---|---|
+| SDK 里有 `__builtin_mxc_mma_16x16x32i8`，target feature 门是 `xcore1500\|1520\|1600\|2000` | C500 真机上查 `__clang_maca_mma_functions.h`（**实测**） |
+| C500 是 xcore1000；`-offload-arch=xcore1500` 编得过，一跑就 `ErrorNoBinaryForGpu: Couldn't find xcore1000 binary` | **实测** |
+| C600 是 XCORE 1.5 架构 | 公开报道 |
+| 所以 K=32 的 int8 MMA 在 C600 上应当可用 | **推论** |
+
+LDS 32 bank × 4B、wave 64 lane、BSM 异步搬运、累加器布局 —— 没有任何公开信息
+说这些变了，**全部按不变处理，但每一条都落成了编译期断言或开机自检**，
+不成立就编译失败 / 报 MISMATCH，而不是算出错数字。
+
+### 读侧一个字都没改
+
+C500：一条 16B 的 LDS 读 = 4 个 4B 片段 = 喂 **4** 条 K=16 MMA。
+C600：**同一条 16B 读** = 2 个 8B 片段 = 喂 **2** 条 K=32 MMA。
+
+地址、步长、bank 行为完全相同 → XOR swizzle 原样成立，mask 还是 7。
+改的只有「这 16 个字节切成几份」。
+
+而且不必等拿到 K=32 的片段布局文档就能写：硬件只保证 a 的第 i 个字节槽和 b 的
+第 i 个字节槽配到同一个 k，**它认为那是第几个 k 我们不关心** —— 这就是教程第 03 节
+「k 的置换不影响结果」那条结论的直接复用。指令 `(c, w)` 从 lane q 取 LDS 字节
+`64c + 16q + 8w .. +7`，8 条指令铺满一个窗口的 256 个 k，不重不漏（`banks` 子命令里穷举验过）。
+
+### 一个反直觉的后果
+
+每个 k 窗口、每个 wave 的指令账：
+
+| | LDS 读 | MMA | 读 : MMA |
+|---|---|---|---|
+| C500，K=16 | 32 条 | 256 条 | 1 : 8 |
+| C600，K=32 | 32 条 | **128 条** | **1 : 4** |
+
+MMA 条数砍半而读一条没少，**消 bank 冲突在 C600 上比在 C500 上更值钱，不是更不值钱**。
+
+### 上机第一件事
+
+```bash
+mxcc -x maca -O3 -std=c++17 --offload-arch=xcore1500 -DMX_ARCH=600 \
+     mma_swizzle_c600.cu -o mma_swizzle_c600
+./mma_swizzle_c600 arch     # 编译期假设 vs 真机属性，逐行标 OK / MISMATCH
+./mma_swizzle_c600 banks    # bank 模型 + 布局/足迹/k 覆盖自检（纯 CPU，不用 GPU）
+./mma_swizzle_c600          # 四个组合各对一次 CPU 参考
+```
+
+五件待核的事都在文件头列着，每件都写了怎么查：
+
+1. **arch 串**到底是 `xcore1500` 还是 `1520`/`1600`。`MX_ARCH` 只管选 MMA 的 K，换串不用改代码。
+2. **`mma_16x16x32i8` 的真实签名**。本文件按「a/b 各是一个 64 位打包」写成 `long`；
+   SDK 若写的是 `int2`，加 `-DMX_FRAG64_AS_V2I32`（一条 grep 就能定）。
+3. **累加器布局**。输出块还是 16×16，所以极可能和 K=16 逐字相同；不同的话正确性检查立刻 FAIL，改第 4 段两行。
+4. **每 block 的 LDS 上限 / CU 数 / 驻留度**。`arch` 子命令打出来。
+5. **BSM 异步搬运**是否同名同语义。不是就 `-DMX_HAS_BSM=0` 退回同步拷贝，XOR 侧不受影响。
+
+正确性**全 FAIL 且四个组合一模一样** → 先怀疑 acc 布局或 wave 宽度，不是 swizzle
+（swizzle 错只会让带 XOR 的那两行 FAIL）。
+
+### 已经验了什么
+
+没有真机、也没有本地 C 编译器，所以验的是**那套下标算术**：把 kernel 里的宏逐条
+镜像一份，跑三个配置 ——
+
+| 配置 | 结果 |
+|---|---|
+| C500 基线 K=16，128×128×256 | 15 条假设墙全过；原始 16 拍 / XOR 8 拍（下限 8）；布局往返、全局足迹、k 覆盖全过 |
+| C600 默认 K=32，128×128×256 | 同上，读:MMA 变 1:4 |
+| C600 大 tile K=32，256×128×128，8 wave | 同上；LDS 49152 B，acc 仍 64 个 VGPR |
+
+同样的检查就是 `./mma_swizzle_c600 banks`，上机不用重写。这一步抓出了两个真错：
+片段宽度是 `K/4` 不是 `K/8`（断言墙会直接挡住），以及 `-DMX_FRAG64_AS_V2I32`
+那条备选路径原本写成了「向量的向量」，clang 不允许。
+
+**没验的**：这份源码一行都没经过编译器，更没上过任何卡。
 
 ## 验证状态
 
