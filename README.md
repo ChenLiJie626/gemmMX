@@ -1,9 +1,12 @@
 # tutorial-int8-mma —— C500 int8 MMA 数据排布教程
 
-这个分支不比性能，只回答一个问题：
+这个分支不做实现之间的性能横评，只回答一个问题：
 
 > **`__builtin_mxc_mma_16x16x16i8` 这条指令，数据到底是怎么排的？**
 > 哪条 lane 交进去什么、拿回来什么，算完之后写回大矩阵的哪一格。
+
+排布讲清楚之后，顺着同一套下标还能看出一处 LDS bank 冲突，
+所以分支里也带了消冲突的 XOR swizzle 版本和它的图解。
 
 从 `main` 基线分出，与 [`claude`](https://github.com/ChenLiJie626/gemmMX/tree/claude)、
 [`codex`](https://github.com/ChenLiJie626/gemmMX/tree/codex) 两个实现分支平行。
@@ -18,6 +21,8 @@
 | [`docs/C500-int8-MMA-教程.pdf`](docs/) | 同上的打印版，30 页 |
 | [`docs/C500-int8-MMA-映射速查.html`](docs/) | **精简版**，只留讲映射关系的 8 张图 + 下标字典 + 四层偏移表 |
 | [`docs/C500-int8-MMA-映射速查.pdf`](docs/) | 同上，12 页 |
+| [`docs/C500-int8-MMA-XOR-swizzle.html`](docs/) | **XOR swizzle 消 bank 冲突**，5 张图。读指令 16 拍 → 8 拍 |
+| [`docs/C500-int8-MMA-XOR-swizzle.pdf`](docs/) | 同上，10 页 |
 
 HTML 是自包含的（SVG 内联、样式内联），只有字体走 Google Fonts CDN，离线打开会回落到系统字体。
 浏览器里 Ctrl+P 就能印出与仓库里 PDF 一致的版面。
@@ -34,6 +39,11 @@ HTML 是自包含的（SVG 内联、样式内联），只有字体走 Google Fon
 
 精简版只保留八张讲「谁对应谁」的图，按数据流排：三张座位表 → 交进去 ≠ 拿回来 →
 一个输出格子是谁凑的 → LDS 读哪儿 → 复用网格 → 定位图 → 一条 lane 的 64 个落点 → 整条链。
+
+XOR swizzle 那份是性能向的续篇：教程讲清布局之后，这份指出同一个布局里
+**取片段的 32 条 LDS 读每条要 16 拍，而下限是 8 拍**，原因是行距 256B 恰好是 bank
+阵列宽度的整数倍；改法是一个异或 `槽位 = j ^ (r & 7)`。五张图依次是
+bank 的几何 → 冲突现场 → XOR 表 → 修好之后 → 写路径没被破坏。
 
 ## 代码
 
@@ -52,8 +62,9 @@ $MXCC -x maca -O3 mma_teach_256.cu -o mma_teach_256
 | `tutorial_i8_256_v2.cu` | 同上 | v2：B 走寄存器内 4×4 转置，BK 32→64 消除 bank 冲突 |
 | `tutorial_i8_256_v3.cu` | 同上 | v3：v2 + 全局→寄存器预取 |
 | `kernel_test_v1.cu` | tile 128×128×256 | 对照用的工程版（异步拷贝 + `arrive_gvmcnt`）。**需要 MACA SDK 的 `mctlass/arch/maca_memory.h`**，不在本仓库内 |
+| `mma_swizzle_256.cu` | 256×256×256 | **XOR swizzle 版**。原始布局与 XOR 布局是同一个 `template <bool SW>` 的两个实例，除寻址宏外逐字相同，所以 `bench` 是严格同条件对照 |
 
-数据约定（六个文件一致）：
+数据约定（七个文件一致）：
 
 ```
 A: M × K  行主序 int8
@@ -74,6 +85,15 @@ C: M × N  行主序 int32
 ./mma_teach_256 bench [M N K]    # 计时
 ```
 
+`mma_swizzle_256.cu` 还带一个**不需要 GPU** 的 bank 模型 —— 把 kernel 里那两条寻址宏
+原样搬到 host 上数格子，并穷举检查 swizzle 的双射性：
+
+```bash
+./mma_swizzle_256 banks              # bank 深度直方图 + 双射检查（纯 CPU）
+./mma_swizzle_256                    # 两个布局各对一次 CPU 参考
+./mma_swizzle_256 bench 4096 4096 4096   # 两个布局的 us / TOPS 并排
+```
+
 ## 验证状态
 
 `mma_teach_256.cu` 在 C500（xcore1000，MACA 3.3.0）上跑过：
@@ -82,3 +102,15 @@ C: M × N  行主序 int32
 的真机输出，不是推导值。
 
 性能不是这个分支的议题，`tutorial_i8_256*` 三版的吞吐对比未在此处给出结论。
+
+`mma_swizzle_256.cu` 的情况要分开说：
+
+| 结论 | 凭什么 | 状态 |
+|---|---|---|
+| 读指令 16 拍 → 8 拍，写指令仍在下限 | 地址公式的确定性推论，host 模型穷举全部下标组合 | **已验** |
+| swizzle 是双射（128 行 × 16 块，无越界无重叠） | 同上，`banks` 子命令里的穷举检查 | **已验** |
+| 额外 LDS = 0 字节 | 行内重排，行距不变 | **已验** |
+| 数值正确性、端到端加速比 | 需要在 C500 上编译运行 | **待真机** |
+
+bank 分布是地址的函数，这类结论不需要上机；但**这份 kernel 到提交时还没在 C500 上
+编译运行过**，所以后两行写的是「待真机」。
