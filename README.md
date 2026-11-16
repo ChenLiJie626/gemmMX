@@ -21,8 +21,8 @@
 | [`docs/C500-int8-MMA-教程.pdf`](docs/) | 同上的打印版，30 页 |
 | [`docs/C500-int8-MMA-映射速查.html`](docs/) | **精简版**，只留讲映射关系的 8 张图 + 下标字典 + 四层偏移表 |
 | [`docs/C500-int8-MMA-映射速查.pdf`](docs/) | 同上，12 页 |
-| [`docs/C500-int8-MMA-XOR-swizzle.html`](docs/) | **XOR swizzle 消 bank 冲突**，7 张图。读指令 16 拍 → 8 拍，真机 1.83× |
-| [`docs/C500-int8-MMA-XOR-swizzle.pdf`](docs/) | 同上，14 页 |
+| [`docs/C500-int8-MMA-XOR-swizzle.html`](docs/) | **XOR swizzle 消 bank 冲突**，9 张图。读指令 16 拍 → 8 拍，真机 1.83× |
+| [`docs/C500-int8-MMA-XOR-swizzle.pdf`](docs/) | 同上，15 页 |
 
 HTML 是自包含的（SVG 内联、样式内联），只有字体走 Google Fonts CDN，离线打开会回落到系统字体。
 浏览器里 Ctrl+P 就能印出与仓库里 PDF 一致的版面。
@@ -42,8 +42,9 @@ HTML 是自包含的（SVG 内联、样式内联），只有字体走 Google Fon
 
 XOR swizzle 那份是性能向的续篇：教程讲清布局之后，这份指出同一个布局里
 **取片段的 32 条 LDS 读每条要 16 拍，而下限是 8 拍**，原因是行距 256B 恰好是 bank
-阵列宽度的整数倍；改法是一个异或 `槽位 = j ^ (r & 7)`，真机实测 1.83×。七张图依次是
-bank 的几何 → 冲突现场（哪条 lane 落在哪个 bank、和谁撞）→ XOR 表 → 修好之后 → 写路径没被破坏。
+阵列宽度的整数倍；改法是一个异或 `槽位 = j ^ (r & 7)`，真机实测 1.83×。九张图依次是
+bank 的几何 → 冲突现场（哪条 lane 落在哪个 bank、和谁撞）→ 为什么一条指令天生只占
+半圈 bank → XOR 表 → XOR 怎么向隔壁那条指令借走另外半圈 → 修好之后 → 写路径没被破坏。
 
 ## 代码
 
