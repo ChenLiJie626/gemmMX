@@ -1,0 +1,1151 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>双缓冲的规模分水岭</title>
+<style>
+  /* 布局:单栏,交互块满宽,所有坐标与计数用等宽字体 */
+  :root {
+    --bg: #f7f8fa; --surface: #fff; --surface-2: #eceff4;
+    --fg: #16202c; --fg-dim: #556379; --fg-faint: #8694a7;
+    --line: #d6dce5; --accent: #0a6fb5; --accent-soft: #e3eff8;
+    --a-col: #0a6fb5; --b-col: #0f7a52; --c-col: #b5560a;
+    --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+    --sans: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0d1117; --surface: #151b24; --surface-2: #1e2631;
+      --fg: #e4eaf2; --fg-dim: #9babc0; --fg-faint: #67788d;
+      --line: #2b3643; --accent: #4caae8; --accent-soft: #15293a;
+      --a-col: #4caae8; --b-col: #43c494; --c-col: #e09243;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d1117; --surface: #151b24; --surface-2: #1e2631;
+    --fg: #e4eaf2; --fg-dim: #9babc0; --fg-faint: #67788d;
+    --line: #2b3643; --accent: #4caae8; --accent-soft: #15293a;
+    --a-col: #4caae8; --b-col: #43c494; --c-col: #e09243;
+    color-scheme: dark;
+  }
+
+  body {
+    background: var(--bg); color: var(--fg); font-family: var(--sans);
+    font-size: 15px; line-height: 1.68;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 0 72px;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; }
+
+  header { padding-block: 40px 26px; border-bottom: 1px solid var(--line); }
+  h1 { font-size: clamp(26px, 5vw, 38px); line-height: 1.14; margin: 0 0 14px;
+       font-weight: 700; letter-spacing: -0.02em; text-wrap: balance; }
+  .lede { font-size: 17px; color: var(--fg-dim); max-width: 60ch; margin: 0; }
+
+  section { padding-block: 36px 6px; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em;
+       color: var(--fg-faint); font-weight: 600; margin: 0 0 6px; font-family: var(--mono); }
+  h3 { font-size: 22px; margin: 0 0 15px; font-weight: 650; letter-spacing: -0.01em; text-wrap: balance; }
+  h4 { font-size: 15.5px; margin: 24px 0 9px; font-weight: 600; }
+  p { margin: 0 0 14px; max-width: 70ch; }
+  ul, ol { margin: 0 0 15px; padding-left: 21px; max-width: 70ch; }
+  li { margin-bottom: 6px; }
+  code { font-family: var(--mono); font-size: 0.89em; background: var(--surface-2);
+         padding: 1px 5px; border-radius: 4px; border: 1px solid var(--line); }
+  pre { font-family: var(--mono); font-size: 12.5px; line-height: 1.62;
+        background: var(--surface); border: 1px solid var(--line); border-radius: 7px;
+        padding: 14px 16px; overflow-x: auto; margin: 0 0 16px; }
+  pre code { background: none; border: none; padding: 0; font-size: inherit; }
+  .cmt { color: var(--fg-faint); }
+  .kw { color: var(--accent); }
+  strong { font-weight: 650; }
+
+  .panel { background: var(--surface); border: 1px solid var(--line);
+           border-radius: 9px; padding: 18px; margin: 0 0 18px; }
+
+  .note { border-left: 3px solid var(--accent); background: var(--accent-soft);
+          padding: 12px 15px; border-radius: 0 6px 6px 0; margin: 0 0 18px; font-size: 14.5px; }
+  .note p:last-child { margin-bottom: 0; }
+
+  /* ---- 16x16 网格 ---- */
+  .g16 { display: grid; grid-template-columns: repeat(16, 1fr); gap: 1.5px;
+         aspect-ratio: 1; }
+  .g16 > div { background: var(--surface-2); border-radius: 2px; transition: background .1s; }
+  .gA > div.on { background: var(--a-col); }
+  .gB > div.on { background: var(--b-col); }
+  .gC > div.on { background: var(--c-col); }
+  .gC > div.sel { outline: 2px solid var(--fg); outline-offset: 1px; z-index: 2; }
+
+  .frags { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+  .fb h5 { margin: 0 0 2px; font-size: 13px; font-weight: 600; font-family: var(--mono); }
+  .fb .sub { font-size: 11px; color: var(--fg-faint); margin: 0 0 8px;
+             font-family: var(--mono); line-height: 1.4; min-height: 2.8em; }
+  .fb.a h5 { color: var(--a-col); }
+  .fb.b h5 { color: var(--b-col); }
+  .fb.c h5 { color: var(--c-col); }
+  .axl { display: flex; justify-content: space-between; font-family: var(--mono);
+         font-size: 10px; color: var(--fg-faint); margin-top: 4px; }
+
+  /* ---- lane 选择 ---- */
+  .lanes { display: grid; grid-template-columns: repeat(16, 1fr); gap: 2px; }
+  .lanes button { font-family: var(--mono); font-size: 9.5px; padding: 3px 0; aspect-ratio: 1.6;
+    background: var(--surface-2); color: var(--fg-faint); border: 1px solid var(--line);
+    border-radius: 3px; cursor: pointer; line-height: 1; }
+  .lanes button:hover { color: var(--fg); }
+  .lanes button[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .lanes button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  .ctrls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
+  button.seg { font-family: var(--mono); font-size: 12px; padding: 5px 11px;
+    background: var(--surface-2); color: var(--fg-dim); border: 1px solid var(--line);
+    border-radius: 5px; cursor: pointer; }
+  button.seg:hover { color: var(--fg); border-color: var(--fg-faint); }
+  button.seg:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .readout { font-family: var(--mono); font-size: 12.5px; line-height: 1.8;
+    background: var(--surface-2); border: 1px solid var(--line);
+    border-radius: 7px; padding: 14px 16px; overflow-x: auto; }
+  .readout .k { color: var(--fg-faint); display: inline-block; min-width: 12ch; }
+  .readout .hi { color: var(--accent); font-weight: 600; }
+  .readout .ca { color: var(--a-col); font-weight: 600; }
+  .readout .cb { color: var(--b-col); font-weight: 600; }
+  .readout .cc { color: var(--c-col); font-weight: 600; }
+  .readout hr { border: none; border-top: 1px dashed var(--line); margin: 9px 0; }
+
+  .split { display: grid; grid-template-columns: minmax(0, 300px) minmax(0, 1fr); gap: 18px; align-items: start; }
+  @media (max-width: 680px) { .split { grid-template-columns: minmax(0, 1fr); } }
+
+  .tw { overflow-x: auto; margin: 0 0 18px; border: 1px solid var(--line); border-radius: 7px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { background: var(--surface-2); font-weight: 600; font-size: 11.5px;
+       text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-dim); }
+  tr:last-child td { border-bottom: none; }
+  td.n { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  /* ---- 搬运流程图 ---- */
+  .flow { display: grid; gap: 10px; font-family: var(--mono); font-size: 12px; }
+  .frow { display: grid; grid-template-columns: 7ch 1fr; gap: 12px; align-items: center; }
+  .frow .lbl { color: var(--fg-faint); text-align: right; }
+  .bar { display: flex; gap: 2px; }
+  .bar i { height: 22px; flex: 1; border-radius: 2px; display: grid; place-items: center;
+           font-size: 9.5px; color: #fff; font-style: normal; }
+  .arrow { text-align: center; color: var(--fg-faint); font-size: 11px; }
+
+  footer { margin-top: 42px; padding-top: 20px; border-top: 1px solid var(--line);
+           font-size: 13px; color: var(--fg-faint); }
+  .tag { display: inline-block; font-family: var(--mono); font-size: 10.5px;
+         padding: 2px 7px; border-radius: 4px; background: var(--surface-2);
+         border: 1px solid var(--line); color: var(--fg-dim); margin-right: 5px; }
+  .tag.v { background: var(--b-col); color: #fff; border-color: var(--b-col); }
+  /* ---- 手绘 SVG 图 ---- */
+  figure { margin: 0; }
+  figure svg { max-width: 100%; min-width: 420px; height: auto;
+               display: block; margin: 0 auto; }
+  figcaption { font-size: 13px; color: var(--fg-dim); margin-top: 12px;
+               line-height: 1.55; max-width: 70ch; }
+  .cmap { width: 100%; max-width: 340px; aspect-ratio: 1; display: block;
+           image-rendering: pixelated; border: 1px solid var(--line);
+           border-radius: 6px; cursor: crosshair; }
+  .fig-wrap { background: var(--surface); border: 1px solid var(--line);
+              border-radius: 9px; padding: 16px 18px; margin: 0 0 20px; overflow-x: auto; }
+</style>
+<style>
+  /* 图表专用的分类色：和正文的 --a/b/c-col 同源，但压进 dataviz 的亮度带 */
+  :root { --ch-a: #0a6fb5; --ch-b: #0f7a52; --ch-c: #b5560a; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --ch-a: #3c93cf; --ch-b: #2fa87a; --ch-c: #cc7d2e; }
+  }
+  :root[data-theme="dark"] { --ch-a: #3c93cf; --ch-b: #2fa87a; --ch-c: #cc7d2e; }
+</style>
+
+
+<style>
+@media print {
+  :root, :root[data-theme="light"] {
+    --bg: #fff; --surface: #fff; --surface-2: #f2f4f7;
+    --fg: #16202c; --fg-dim: #4a5869; --fg-faint: #78879a;
+    --line: #c7cfda; --accent: #0a6fb5; --accent-soft: #eaf2f9;
+    --a-col: #0a6fb5; --b-col: #0f7a52; --c-col: #b5560a;
+    color-scheme: light;
+  }
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  @page { size: A4; margin: 14mm 12mm; }
+  body { font-size: 11.5px; line-height: 1.6; padding: 0 !important; background: #fff; }
+  .wrap { max-width: none; margin: 0; }
+  header { padding-block: 0 18px; }
+  section { break-before: page; }
+  section:first-of-type { break-before: avoid; }
+  h1, h2, h3, h4 { break-after: avoid; }
+  figure, .fig-wrap, table, .note, .split { break-inside: avoid; }
+  figure svg, .fig-wrap svg { max-height: 215mm; }
+  pre { font-size: 9px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+  footer { break-before: page; }
+  a { color: var(--accent); text-decoration: none; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>双缓冲的规模分水岭</h1>
+  <p class="lede">
+    上一篇的结论是「双缓冲更慢」。这一篇把 <code>TILE_K</code> 切到 128 和 64，
+    把双缓冲、三级流水一起做出来，在真机上<strong>八个组合全部验过数值</strong>，
+    然后发现上一篇那句话<strong>只在大矩阵上成立</strong>：
+    <code>4096³</code> 双缓冲是 0.657×（慢 34%），
+    而 <code>1024³</code> 双缓冲是<strong>八个组合里最快的</strong>。
+    分界线不在流水线写得好不好，在<strong>block 够不够把这台机器填满</strong> ——
+    64 个 block 对 104 个 CU，每个 CU 最多也只排得下一个，
+    这时候双缓冲让掉的那个驻留位子<strong>本来就没人坐</strong>。
+  </p>
+</header>
+
+<section>
+  <h2>00</h2>
+  <h3>结论</h3>
+  <div class="tw"><table>
+    <thead><tr>
+      <th>TK=128，三种发射方式</th><th>LDS</th><th>驻留</th>
+      <th>1024³</th><th>2048³</th><th>4096³</th>
+    </tr></thead>
+    <tbody>
+      <tr><td>顶部发射（无重叠）</td><td class="n">32 KB</td><td class="n">2</td>
+        <td class="n">78.4</td><td class="n">149.0</td><td class="n">234.5</td></tr>
+      <tr><td>单缓冲晚发射</td><td class="n">32 KB</td><td class="n">2</td>
+        <td class="n">95.1</td><td class="n"><strong>186.2</strong></td><td class="n"><strong>292.2</strong></td></tr>
+      <tr><td><strong>双缓冲</strong></td><td class="n">64 KB</td><td class="n">1</td>
+        <td class="n"><strong>96.9</strong></td><td class="n">147.9</td><td class="n">191.9</td></tr>
+      <tr><td>双缓冲，去掉 XOR 布局</td><td class="n">64 KB</td><td class="n">1</td>
+        <td class="n">45.0</td><td class="n">67.2</td><td class="n">83.5</td></tr>
+    </tbody>
+  </table></div>
+  <p class="sub">单位 TOPS，C500 实测，取两轮（第二轮顺序颠倒）中的快者。粗体是该规模的最快。</p>
+  <div class="note"><p>
+    <strong>双缓冲 vs 单缓冲晚发射，三个规模三个结论：</strong>
+    <code>1024³</code> <strong>1.02×</strong>（双缓冲赢）、
+    <code>2048³</code> <strong>0.79×</strong>、
+    <code>4096³</code> <strong>0.66×</strong>。
+    同一个二进制、同一台卡，只换了矩阵规模，名次就翻了。
+  </p></div>
+  <p>
+    另外两件在真机上才看清的事：<strong>去掉 XOR 布局要赔 2.30×</strong>
+    （比上一篇 <code>TK=256</code> 单缓冲下的 1.85× 更贵 —— 驻留只剩 1 个 block 时，
+    没有别的 block 来帮着盖 LDS 冲突的延迟）；
+    以及<strong>再往下切到 <code>TK=64</code> 是亏的</strong>，
+    哪怕它能驻留 4 个 block（见第 05 节）。
+  </p>
+</section>
+
+<section>
+  <h2>01</h2>
+  <h3>先把正确性钉住</h3>
+  <p>
+    八个组合同源实例化（<code>TILE_K</code> × 缓冲数 × 发射方式 × 有无 XOR 四个编译期开关），
+    真机逐个对 CPU 参考：
+  </p>
+<pre><code>$ ./mma_dbuf_256                 <span class="cmt">// 256³</span>
+  TK=128 单缓冲顶部发射 PASS  (0/65536 不符)
+  TK=128 单缓冲晚发射   PASS  (0/65536 不符)
+  TK=128 双缓冲         PASS  (0/65536 不符)
+  TK=128 双缓冲(无XOR)  PASS  (0/65536 不符)
+  TK=256 单缓冲顶部发射 PASS  (0/65536 不符)
+  TK=64  单缓冲晚发射   PASS  (0/65536 不符)
+  TK=64  双缓冲         PASS  (0/65536 不符)
+  TK=64  三级流水       PASS  (0/65536 不符)
+
+$ ./mma_dbuf_256 bench 1024 1024 1024
+  八个组合全部 PASS  (0/1048576 不符)</code></pre>
+  <p>
+    这件事值得单独说一句：<strong>流水线的错不会让结果偏一点，会让它错得很明显</strong> ——
+    读到还没落地的数据，或者盖掉别人还没读完的缓冲，出来的就是垃圾。
+    所以「<code>0/1048576</code> 不符」同时也是时序正确的证据。
+  </p>
+</section>
+
+<section>
+  <h2>02</h2>
+  <h3>切 K 是为了把缓冲做小，不是为了把窗口做多</h3>
+  <p>
+    <code>TILE_K=256</code> 时一份缓冲就是 <code>2 × 128 × 256 = 65536 B</code>，
+    正好顶满每 block 的上限，<strong>双缓冲根本放不下</strong>。所以要先切 K：
+  </p>
+<pre><code>TILE_K = 256：一份 64 KB    两份 128 KB  <span class="cmt">// 放不下</span>
+TILE_K = 128：一份 32 KB    两份  64 KB  <span class="cmt">// 正好用满 ← 本篇重点</span>
+TILE_K =  64：一份 16 KB    两份  32 KB  <span class="cmt">// 还剩一半</span></code></pre>
+  <p>
+    切 K <strong>不改变总工作量</strong>：窗口数翻倍、每窗的 LDS 读和 MMA 各减半，
+    读:MMA 恒为 1:8。它改变的是三件别的事 —— LDS 占用、barrier 条数、
+    以及全局侧每行的连续段长（<code>TILE_K</code> 就是段长）。
+  </p>
+  <figure>
+<svg viewBox="0 0 1056 382" role="img" aria-label="五种配置怎么分一个 CU 的 64KB LDS，以及各自的实测驻留 block 数和两个规模下的 TOPS"
+     style="width:100%;max-width:1056px;height:auto;display:block;margin:0 auto"
+     fill="none" stroke="currentColor"><defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6"
+  markerHeight="6" orient="auto-start-reverse">
+  <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs><text x="456" y="26" font-size="11" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">一个 CU 的 64 KB LDS</text>
+<text x="866" y="26" font-size="10" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">实测驻留</text>
+<text x="948" y="26" font-size="10" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">4096³</text>
+<text x="1006" y="26" font-size="10" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">1024³</text>
+<text x="182" y="61" font-size="11.5" text-anchor="end" font-weight="600" font-family="IBM Plex Mono, monospace">TK=256 顶部发射</text>
+<text x="182" y="76" font-size="9" text-anchor="end" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">一份缓冲 64 KB × 1</text>
+<rect x="196" y="42" width="520" height="34" rx="3" fill="var(--surface-2)" stroke="var(--line)" stroke-width="0.8"/>
+<rect x="197.5" y="44.5" width="517" height="29" rx="3" fill="none" stroke="var(--fg-dim)" stroke-width="1.1"/>
+<rect x="200.5" y="48" width="511" height="22" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.8"/>
+<text x="456" y="62.5" font-size="9" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">缓冲</text>
+<text x="456" y="86" font-size="8.5" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">block 0</text>
+<text x="866" y="63" font-size="12" text-anchor="middle" fill="var(--c-col)" font-weight="700" font-family="IBM Plex Mono, monospace">1 个</text>
+<text x="948" y="63" font-size="11" text-anchor="middle" font-family="IBM Plex Mono, monospace">153.0</text>
+<text x="1006" y="63" font-size="11" text-anchor="middle" font-family="IBM Plex Mono, monospace">72.4</text>
+<text x="182" y="123" font-size="11.5" text-anchor="end" font-weight="600" font-family="IBM Plex Mono, monospace">TK=128 顶部发射</text>
+<text x="182" y="138" font-size="9" text-anchor="end" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">一份缓冲 32 KB × 1</text>
+<rect x="196" y="104" width="520" height="34" rx="3" fill="var(--surface-2)" stroke="var(--line)" stroke-width="0.8"/>
+<rect x="197.5" y="106.5" width="257" height="29" rx="3" fill="none" stroke="var(--fg-dim)" stroke-width="1.1"/>
+<rect x="200.5" y="110" width="251" height="22" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.8"/>
+<text x="326" y="124.5" font-size="9" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">缓冲</text>
+<text x="326" y="148" font-size="8.5" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">block 0</text>
+<rect x="457.5" y="106.5" width="257" height="29" rx="3" fill="none" stroke="var(--fg-dim)" stroke-width="1.1"/>
+<rect x="460.5" y="110" width="251" height="22" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.8"/>
+<text x="586" y="124.5" font-size="9" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">缓冲</text>
+<text x="586" y="148" font-size="8.5" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">block 1</text>
+<text x="866" y="125" font-size="12" text-anchor="middle" fill="var(--b-col)" font-weight="700" font-family="IBM Plex Mono, monospace">2 个</text>
+<text x="948" y="125" font-size="11" text-anchor="middle" font-family="IBM Plex Mono, monospace">234.5</text>
+<text x="1006" y="125" font-size="11" text-anchor="middle" font-family="IBM Plex Mono, monospace">78.4</text>
+<text x="182" y="185" font-size="11.5" text-anchor="end" font-weight="600" font-family="IBM Plex Mono, monospace">TK=128 双缓冲</text>
+<text x="182" y="200" font-size="9" text-anchor="end" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">一份缓冲 32 KB × 2</text>
+<rect x="196" y="166" width="520" height="34" rx="3" fill="var(--surface-2)" stroke="var(--line)" stroke-width="0.8"/>
+<rect x="197.5" y="168.5" width="517" height="29" rx="3" fill="none" stroke="var(--fg-dim)" stroke-width="1.1"/>
+<rect x="200.5" y="172" width="254.5" height="22" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.8"/>
+<text x="327.75" y="186.5" font-size="9" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">缓冲 0</text>
+<rect x="457" y="172" width="254.5" height="22" rx="2" fill="var(--b-col)" stroke="none" stroke-width="1" opacity="0.8"/>
+<text x="584.25" y="186.5" font-size="9" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">缓冲 1</text>
+<text x="456" y="210" font-size="8.5" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">block 0</text>
+<text x="866" y="187" font-size="12" text-anchor="middle" fill="var(--c-col)" font-weight="700" font-family="IBM Plex Mono, monospace">1 个</text>
+<text x="948" y="187" font-size="11" text-anchor="middle" font-family="IBM Plex Mono, monospace">191.9</text>
+<text x="1006" y="187" font-size="11" text-anchor="middle" font-family="IBM Plex Mono, monospace">96.9</text>
+<text x="182" y="247" font-size="11.5" text-anchor="end" font-weight="600" font-family="IBM Plex Mono, monospace">TK=64 晚发射</text>
+<text x="182" y="262" font-size="9" text-anchor="end" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">一份缓冲 16 KB × 1</text>
+<rect x="196" y="228" width="520" height="34" rx="3" fill="var(--surface-2)" stroke="var(--line)" stroke-width="0.8"/>
+<rect x="197.5" y="230.5" width="127" height="29" rx="3" fill="none" stroke="var(--fg-dim)" stroke-width="1.1"/>
+<rect x="200.5" y="234" width="121" height="22" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.8"/>
+<text x="261" y="248.5" font-size="9" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">缓冲</text>
+<text x="261" y="272" font-size="8.5" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">block 0</text>
+<rect x="327.5" y="230.5" width="127" height="29" rx="3" fill="none" stroke="var(--fg-dim)" stroke-width="1.1"/>
+<rect x="330.5" y="234" width="121" height="22" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.8"/>
+<text x="391" y="248.5" font-size="9" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">缓冲</text>
+<text x="391" y="272" font-size="8.5" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">block 1</text>
+<rect x="457.5" y="230.5" width="127" height="29" rx="3" fill="none" stroke="var(--fg-dim)" stroke-width="1.1"/>
+<rect x="460.5" y="234" width="121" height="22" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.8"/>
+<text x="521" y="248.5" font-size="9" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">缓冲</text>
+<text x="521" y="272" font-size="8.5" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">block 2</text>
+<rect x="587.5" y="230.5" width="127" height="29" rx="3" fill="none" stroke="var(--fg-dim)" stroke-width="1.1"/>
+<rect x="590.5" y="234" width="121" height="22" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.8"/>
+<text x="651" y="248.5" font-size="9" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">缓冲</text>
+<text x="651" y="272" font-size="8.5" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">block 3</text>
+<text x="866" y="249" font-size="12" text-anchor="middle" fill="var(--b-col)" font-weight="700" font-family="IBM Plex Mono, monospace">4 个</text>
+<text x="948" y="249" font-size="11" text-anchor="middle" font-family="IBM Plex Mono, monospace">88.7</text>
+<text x="1006" y="249" font-size="11" text-anchor="middle" font-family="IBM Plex Mono, monospace">67.1</text>
+<text x="182" y="309" font-size="11.5" text-anchor="end" font-weight="600" font-family="IBM Plex Mono, monospace">TK=64 双缓冲</text>
+<text x="182" y="324" font-size="9" text-anchor="end" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">一份缓冲 16 KB × 2</text>
+<rect x="196" y="290" width="520" height="34" rx="3" fill="var(--surface-2)" stroke="var(--line)" stroke-width="0.8"/>
+<rect x="197.5" y="292.5" width="257" height="29" rx="3" fill="none" stroke="var(--fg-dim)" stroke-width="1.1"/>
+<rect x="200.5" y="296" width="124.5" height="22" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.8"/>
+<text x="262.75" y="310.5" font-size="9" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">缓冲 0</text>
+<rect x="327" y="296" width="124.5" height="22" rx="2" fill="var(--b-col)" stroke="none" stroke-width="1" opacity="0.8"/>
+<text x="389.25" y="310.5" font-size="9" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">缓冲 1</text>
+<text x="326" y="334" font-size="8.5" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">block 0</text>
+<rect x="457.5" y="292.5" width="257" height="29" rx="3" fill="none" stroke="var(--fg-dim)" stroke-width="1.1"/>
+<rect x="460.5" y="296" width="124.5" height="22" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.8"/>
+<text x="522.75" y="310.5" font-size="9" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">缓冲 0</text>
+<rect x="587" y="296" width="124.5" height="22" rx="2" fill="var(--b-col)" stroke="none" stroke-width="1" opacity="0.8"/>
+<text x="649.25" y="310.5" font-size="9" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">缓冲 1</text>
+<text x="586" y="334" font-size="8.5" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">block 1</text>
+<text x="866" y="311" font-size="12" text-anchor="middle" fill="var(--b-col)" font-weight="700" font-family="IBM Plex Mono, monospace">2 个</text>
+<text x="948" y="311" font-size="11" text-anchor="middle" font-family="IBM Plex Mono, monospace">155.4</text>
+<text x="1006" y="311" font-size="11" text-anchor="middle" font-family="IBM Plex Mono, monospace">64.6</text>
+<text x="456" y="368" font-size="10" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">同样的 64 KB：装两个 block（绿），还是装一个 block 的两份缓冲（蓝+绿）</text>
+<text x="956" y="368" font-size="9" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">TOPS</text></svg>
+    <figcaption>LDS 是按 block 整块分配的，所以一个 block 用多少 LDS 直接决定一个 CU 驻留几个 block。<strong>第 2 行和第 3 行用掉的总量一模一样</strong>，区别只在这 64KB 装的是两个 block，还是一个 block 的两份缓冲。右边三列是实测：驻留数来自 <code>mcOccupancyMaxActiveBlocksPerMultiprocessor</code>，两个 TOPS 来自真机 bench。注意 <code>1024³</code> 那一列的名次和 <code>4096³</code> 完全不同 —— 那就是第 04 节要讲的事。</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>03</h2>
+  <h3>双缓冲长什么样</h3>
+  <p>一块地在算，另一块地在搬，每轮换手：</p>
+<pre><code>load_win(buf 0, 窗口 0);              <span class="cmt">// 预热</span>
+for (tk = 0; tk &lt; nwin; ++tk) {
+    arrive_gvmcnt(0);                 <span class="cmt">// 等本窗落地</span>
+    barrier;                          <span class="cmt">// 过了这里，上一轮读的那块地就没人要了</span>
+    load_win(另一块, 窗口 tk+1);       <span class="cmt">// ← 读之前就能发，写的是另一块地</span>
+    读 buf[cur] -&gt; 寄存器
+    128 条 MMA                        <span class="cmt">// 搬运在这段时间里飞</span>
+}</code></pre>
+  <figure>
+<svg viewBox="0 0 1000 240" role="img" aria-label="双缓冲的两块 LDS 轮流当「在算的」和「在搬的」，每轮只需要一个 barrier"
+     style="width:100%;max-width:1000px;height:auto;display:block;margin:0 auto"
+     fill="none" stroke="currentColor"><defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6"
+  markerHeight="6" orient="auto-start-reverse">
+  <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs><text x="136" y="30" font-size="10" text-anchor="end" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">预热</text>
+<rect x="150" y="16" width="188" height="22" rx="3" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.75"/>
+<text x="244" y="31" font-size="10" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">搬 窗口 0 -> buf 0</text>
+<text x="136" y="92" font-size="11" text-anchor="end" font-weight="600" font-family="IBM Plex Mono, monospace">buf 0</text>
+<rect x="150" y="72" width="188" height="30" rx="3" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.8"/>
+<text x="244" y="91" font-size="10.5" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">算 窗口 0</text>
+<rect x="346" y="72" width="188" height="30" rx="3" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.75"/>
+<text x="440" y="91" font-size="10.5" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">搬 窗口 2</text>
+<rect x="542" y="72" width="188" height="30" rx="3" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.8"/>
+<text x="636" y="91" font-size="10.5" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">算 窗口 2</text>
+<rect x="738" y="72" width="188" height="30" rx="3" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.75"/>
+<text x="832" y="91" font-size="10.5" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">搬 窗口 4</text>
+<text x="136" y="146" font-size="11" text-anchor="end" font-weight="600" font-family="IBM Plex Mono, monospace">buf 1</text>
+<rect x="150" y="126" width="188" height="30" rx="3" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.75"/>
+<text x="244" y="145" font-size="10.5" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">搬 窗口 1</text>
+<rect x="346" y="126" width="188" height="30" rx="3" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.8"/>
+<text x="440" y="145" font-size="10.5" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">算 窗口 1</text>
+<rect x="542" y="126" width="188" height="30" rx="3" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.75"/>
+<text x="636" y="145" font-size="10.5" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">搬 窗口 3</text>
+<rect x="738" y="126" width="188" height="30" rx="3" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.8"/>
+<text x="832" y="145" font-size="10.5" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">算 窗口 3</text>
+<line x1="150" y1="190" x2="926" y2="190" stroke="var(--line)" stroke-width="1"/>
+<line x1="146" y1="64" x2="146" y2="190" stroke="var(--fg-faint)" stroke-width="1" stroke-dasharray="3 3"/>
+<text x="244" y="205" font-size="10" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">第 0 轮</text>
+<text x="146" y="58" font-size="8.5" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">barrier</text>
+<line x1="342" y1="64" x2="342" y2="190" stroke="var(--fg-faint)" stroke-width="1" stroke-dasharray="3 3"/>
+<text x="440" y="205" font-size="10" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">第 1 轮</text>
+<text x="342" y="58" font-size="8.5" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">barrier</text>
+<line x1="538" y1="64" x2="538" y2="190" stroke="var(--fg-faint)" stroke-width="1" stroke-dasharray="3 3"/>
+<text x="636" y="205" font-size="10" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">第 2 轮</text>
+<text x="538" y="58" font-size="8.5" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">barrier</text>
+<line x1="734" y1="64" x2="734" y2="190" stroke="var(--fg-faint)" stroke-width="1" stroke-dasharray="3 3"/>
+<text x="832" y="205" font-size="10" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">第 3 轮</text>
+<text x="734" y="58" font-size="8.5" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">barrier</text>
+<text x="542" y="226" font-size="10" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">每轮只有一个 barrier：写的是另一块地，不需要「等所有人读完」</text></svg>
+    <figcaption>两块缓冲轮流当「在算的」和「在搬的」。和单缓冲晚发射比，双缓冲的发射点能提到 LDS 读之前（多盖住一段读的时间），而且每轮只要一个 barrier —— 不需要那道「确认所有人都读完才能覆盖」的栅栏。纸面上每一项都更好。</figcaption>
+  </figure>
+  <div class="note"><p>
+    <strong>所以双缓冲在流水线这件事上确实做得更好。</strong>
+    它输掉的从来不是重叠，是那第二份 LDS 顶掉的驻留位子。
+    下一节说明这笔账什么时候划得来。
+  </p></div>
+</section>
+
+<section>
+  <h2>04</h2>
+  <h3>分水岭：block 够不够把机器填满</h3>
+  <figure>
+<svg viewBox="0 0 1000 456" role="img" aria-label="TK=128 三种发射方式在 1024³ / 2048³ / 4096³ 下的实测 TOPS：双缓冲在 1024³ 最快，在 4096³ 最慢"
+     style="width:100%;max-width:1000px;height:auto;display:block;margin:0 auto"
+     fill="none" stroke="currentColor"><defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6"
+  markerHeight="6" orient="auto-start-reverse">
+  <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs><line x1="64" y1="364" x2="972" y2="364" stroke="var(--line)" stroke-width="0.8" opacity="1"/>
+<text x="54" y="368" font-size="10" text-anchor="end" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">0</text>
+<line x1="64" y1="291" x2="972" y2="291" stroke="var(--line)" stroke-width="0.8" opacity="0.7"/>
+<text x="54" y="295" font-size="10" text-anchor="end" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">80</text>
+<line x1="64" y1="218" x2="972" y2="218" stroke="var(--line)" stroke-width="0.8" opacity="0.7"/>
+<text x="54" y="222" font-size="10" text-anchor="end" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">160</text>
+<line x1="64" y1="145" x2="972" y2="145" stroke="var(--line)" stroke-width="0.8" opacity="0.7"/>
+<text x="54" y="149" font-size="10" text-anchor="end" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">240</text>
+<line x1="64" y1="72" x2="972" y2="72" stroke="var(--line)" stroke-width="0.8" opacity="0.7"/>
+<text x="54" y="76" font-size="10" text-anchor="end" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">320</text>
+<text x="54" y="54" font-size="10" text-anchor="end" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">TOPS</text>
+<rect x="64" y="22" width="11" height="11" rx="2" fill="var(--ch-c)" stroke="none" stroke-width="1"/>
+<text x="82" y="32" font-size="10.5" text-anchor="start" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">顶部发射（无重叠）</text>
+<rect x="276" y="22" width="11" height="11" rx="2" fill="var(--ch-a)" stroke="none" stroke-width="1"/>
+<text x="294" y="32" font-size="10.5" text-anchor="start" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">单缓冲晚发射</text>
+<rect x="488" y="22" width="11" height="11" rx="2" fill="var(--ch-b)" stroke="none" stroke-width="1"/>
+<text x="506" y="32" font-size="10.5" text-anchor="start" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">双缓冲</text>
+<path d="M132.33333333333334 364 L132.33333333333334 296.46 Q132.33333333333334 292.46 136.33333333333334 292.46 L182.33333333333334 292.46 Q186.33333333333334 292.46 186.33333333333334 296.46 L186.33333333333334 364 Z" fill="var(--ch-c)" stroke="none"/>
+<text x="159.33333333333334" y="285.46" font-size="10.5" text-anchor="middle" font-weight="700" font-family="IBM Plex Mono, monospace">78.4</text>
+<path d="M188.33333333333334 364 L188.33333333333334 281.22125 Q188.33333333333334 277.22125 192.33333333333334 277.22125 L238.33333333333334 277.22125 Q242.33333333333334 277.22125 242.33333333333334 281.22125 L242.33333333333334 364 Z" fill="var(--ch-a)" stroke="none"/>
+<text x="215.33333333333334" y="270.22125" font-size="10.5" text-anchor="middle" font-weight="700" font-family="IBM Plex Mono, monospace">95.1</text>
+<path d="M244.33333333333334 364 L244.33333333333334 279.57875 Q244.33333333333334 275.57875 248.33333333333334 275.57875 L294.33333333333337 275.57875 Q298.33333333333337 275.57875 298.33333333333337 279.57875 L298.33333333333337 364 Z" fill="var(--ch-b)" stroke="none"/>
+<text x="271.33333333333337" y="268.57875" font-size="10.5" text-anchor="middle" font-weight="700" font-family="IBM Plex Mono, monospace">96.9</text>
+<text x="271.33333333333337" y="254.57875" font-size="9" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">最快</text>
+<text x="215.33333333333334" y="384" font-size="12" text-anchor="middle" font-weight="700" font-family="IBM Plex Mono, monospace">1024³</text>
+<text x="215.33333333333334" y="401" font-size="9.5" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">grid 8×8 = 64 个 block</text>
+<text x="215.33333333333334" y="416" font-size="9.5" text-anchor="middle" fill="var(--b-col)" font-family="IBM Plex Mono, monospace">每 CU 0.62 个 block</text>
+<rect x="123.33333333333334" y="426" width="184" height="22" rx="4" fill="var(--b-col)" stroke="none" stroke-width="1" opacity="0.14"/>
+<text x="215.33333333333334" y="441" font-size="10" text-anchor="middle" fill="var(--b-col)" font-weight="700" font-family="IBM Plex Mono, monospace">双缓冲赢  vs 晚发射 1.02×</text>
+<line x1="366.6666666666667" y1="78" x2="366.6666666666667" y2="364" stroke="var(--line)" stroke-width="0.8" stroke-dasharray="3 4"/>
+<path d="M435 364 L435 232.0375 Q435 228.0375 439 228.0375 L485 228.0375 Q489 228.0375 489 232.0375 L489 364 Z" fill="var(--ch-c)" stroke="none"/>
+<text x="462" y="221.0375" font-size="10.5" text-anchor="middle" font-weight="700" font-family="IBM Plex Mono, monospace">149.0</text>
+<path d="M491 364 L491 198.09250000000003 Q491 194.09250000000003 495 194.09250000000003 L541 194.09250000000003 Q545 194.09250000000003 545 198.09250000000003 L545 364 Z" fill="var(--ch-a)" stroke="none"/>
+<text x="518" y="187.09250000000003" font-size="10.5" text-anchor="middle" font-weight="700" font-family="IBM Plex Mono, monospace">186.2</text>
+<text x="518" y="173.09250000000003" font-size="9" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">最快</text>
+<path d="M547 364 L547 233.04125 Q547 229.04125 551 229.04125 L597 229.04125 Q601 229.04125 601 233.04125 L601 364 Z" fill="var(--ch-b)" stroke="none"/>
+<text x="574" y="222.04125" font-size="10.5" text-anchor="middle" font-weight="700" font-family="IBM Plex Mono, monospace">147.9</text>
+<text x="518" y="384" font-size="12" text-anchor="middle" font-weight="700" font-family="IBM Plex Mono, monospace">2048³</text>
+<text x="518" y="401" font-size="9.5" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">grid 16×16 = 256 个 block</text>
+<text x="518" y="416" font-size="9.5" text-anchor="middle" fill="var(--c-col)" font-family="IBM Plex Mono, monospace">每 CU 2.46 个 block</text>
+<rect x="426" y="426" width="184" height="22" rx="4" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.14"/>
+<text x="518" y="441" font-size="10" text-anchor="middle" fill="var(--c-col)" font-weight="700" font-family="IBM Plex Mono, monospace">双缓冲输  vs 晚发射 0.79×</text>
+<line x1="669.3333333333334" y1="78" x2="669.3333333333334" y2="364" stroke="var(--line)" stroke-width="0.8" stroke-dasharray="3 4"/>
+<path d="M737.6666666666667 364 L737.6666666666667 154.01875 Q737.6666666666667 150.01875 741.6666666666667 150.01875 L787.6666666666667 150.01875 Q791.6666666666667 150.01875 791.6666666666667 154.01875 L791.6666666666667 364 Z" fill="var(--ch-c)" stroke="none"/>
+<text x="764.6666666666667" y="143.01875" font-size="10.5" text-anchor="middle" font-weight="700" font-family="IBM Plex Mono, monospace">234.5</text>
+<path d="M793.6666666666667 364 L793.6666666666667 101.3675 Q793.6666666666667 97.3675 797.6666666666667 97.3675 L843.6666666666667 97.3675 Q847.6666666666667 97.3675 847.6666666666667 101.3675 L847.6666666666667 364 Z" fill="var(--ch-a)" stroke="none"/>
+<text x="820.6666666666667" y="90.3675" font-size="10.5" text-anchor="middle" font-weight="700" font-family="IBM Plex Mono, monospace">292.2</text>
+<text x="820.6666666666667" y="76.3675" font-size="9" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">最快</text>
+<path d="M849.6666666666667 364 L849.6666666666667 192.89124999999999 Q849.6666666666667 188.89124999999999 853.6666666666667 188.89124999999999 L899.6666666666667 188.89124999999999 Q903.6666666666667 188.89124999999999 903.6666666666667 192.89124999999999 L903.6666666666667 364 Z" fill="var(--ch-b)" stroke="none"/>
+<text x="876.6666666666667" y="181.89124999999999" font-size="10.5" text-anchor="middle" font-weight="700" font-family="IBM Plex Mono, monospace">191.9</text>
+<text x="820.6666666666667" y="384" font-size="12" text-anchor="middle" font-weight="700" font-family="IBM Plex Mono, monospace">4096³</text>
+<text x="820.6666666666667" y="401" font-size="9.5" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">grid 32×32 = 1024 个 block</text>
+<text x="820.6666666666667" y="416" font-size="9.5" text-anchor="middle" fill="var(--c-col)" font-family="IBM Plex Mono, monospace">每 CU 9.85 个 block</text>
+<rect x="728.6666666666667" y="426" width="184" height="22" rx="4" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.14"/>
+<text x="820.6666666666667" y="441" font-size="10" text-anchor="middle" fill="var(--c-col)" font-weight="700" font-family="IBM Plex Mono, monospace">双缓冲输  vs 晚发射 0.66×</text></svg>
+    <figcaption>TK=128 的三种发射方式，三个规模。<code>1024³</code> 上双缓冲最快（96.9 TOPS），<code>4096³</code> 上它最慢（191.9 TOPS，比晚发射慢 34%）。中间的 <code>2048³</code> 正好是翻盘点附近。TOPS 只在同一组内部可比 —— 不同规模的绝对值受 L2 命中率影响，不是一条曲线。</figcaption>
+  </figure>
+  <p>
+    为什么规模能决定名次？因为「每 CU 驻留两个 block」这件事
+    <strong>只有在 block 排队的时候才有价值</strong>。这张卡有 104 个 CU，
+    而一个 block 算 <code>128×128</code> 的 C：
+  </p>
+  <figure>
+<svg viewBox="0 0 1000 300" role="img" aria-label="三个规模下 block 数和 104 个 CU 的关系：1024³ 只有 64 个 block，填不满机器"
+     style="width:100%;max-width:1000px;height:auto;display:block;margin:0 auto"
+     fill="none" stroke="currentColor"><defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6"
+  markerHeight="6" orient="auto-start-reverse">
+  <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs><text x="175.5" y="34" font-size="13" text-anchor="middle" font-weight="700" font-family="IBM Plex Mono, monospace">1024³</text>
+<text x="175.5" y="50" font-size="10" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">64 个 block → 104 个 CU</text>
+<rect x="60" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="78" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="96" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="114" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="132" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="150" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="168" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="186" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="204" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="222" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="240" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="258" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="276" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="60" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="78" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="96" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="114" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="132" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="150" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="168" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="186" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="204" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="222" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="240" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="258" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="276" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="60" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="78" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="96" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="114" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="132" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="150" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="168" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="186" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="204" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="222" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="240" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="258" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="276" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="60" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="78" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="96" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="114" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="132" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="150" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="168" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="186" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="204" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="222" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="240" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="258" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="276" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="60" y="138" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="78" y="138" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="96" y="138" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="114" y="138" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="132" y="138" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="150" y="138" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="168" y="138" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="186" y="138" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="204" y="138" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="222" y="138" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="240" y="138" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="258" y="138" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="276" y="138" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="60" y="156" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="78" y="156" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="96" y="156" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="114" y="156" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="132" y="156" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="150" y="156" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="168" y="156" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="186" y="156" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="204" y="156" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="222" y="156" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="240" y="156" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="258" y="156" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="276" y="156" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="60" y="174" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="78" y="174" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="96" y="174" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="114" y="174" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="132" y="174" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="150" y="174" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="168" y="174" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="186" y="174" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="204" y="174" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="222" y="174" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="240" y="174" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="258" y="174" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="276" y="174" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="60" y="192" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="78" y="192" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="96" y="192" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="114" y="192" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="132" y="192" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="150" y="192" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="168" y="192" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="186" y="192" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="204" y="192" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="222" y="192" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="240" y="192" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="258" y="192" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<rect x="276" y="192" width="15" height="15" rx="2" fill="none" stroke="var(--line)" stroke-width="1" opacity="1"/>
+<text x="175.5" y="230" font-size="10.5" text-anchor="middle" fill="var(--b-col)" font-weight="600" font-family="IBM Plex Mono, monospace">40 个 CU 空着</text>
+<text x="175.5" y="246" font-size="9.5" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">每 CU 最多 1 个 block —— 驻留度无从发挥</text>
+<text x="495.5" y="34" font-size="13" text-anchor="middle" font-weight="700" font-family="IBM Plex Mono, monospace">2048³</text>
+<text x="495.5" y="50" font-size="10" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">256 个 block → 104 个 CU</text>
+<rect x="380" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="398" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="416" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="434" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="452" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="470" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="488" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="506" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="524" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="542" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="560" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="578" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="596" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="380" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="398" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="416" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="434" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="452" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="470" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="488" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="506" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="524" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="542" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="560" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="578" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="596" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="380" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="398" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="416" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="434" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="452" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="470" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="488" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="506" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="524" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="542" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="560" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="578" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="596" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="380" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="398" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="416" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="434" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="452" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="470" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="488" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="506" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="524" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="542" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="560" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="578" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="596" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="380" y="138" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="398" y="138" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="416" y="138" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="434" y="138" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="452" y="138" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="470" y="138" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="488" y="138" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="506" y="138" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="524" y="138" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="542" y="138" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="560" y="138" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="578" y="138" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="596" y="138" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="380" y="156" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="398" y="156" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="416" y="156" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="434" y="156" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="452" y="156" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="470" y="156" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="488" y="156" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="506" y="156" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="524" y="156" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="542" y="156" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="560" y="156" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="578" y="156" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="596" y="156" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="380" y="174" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="398" y="174" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="416" y="174" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="434" y="174" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="452" y="174" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="470" y="174" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="488" y="174" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="506" y="174" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="524" y="174" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="542" y="174" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="560" y="174" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="578" y="174" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="596" y="174" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="380" y="192" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="398" y="192" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="416" y="192" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="434" y="192" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="452" y="192" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="470" y="192" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="488" y="192" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="506" y="192" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="524" y="192" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="542" y="192" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="560" y="192" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="578" y="192" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="596" y="192" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<text x="495.5" y="230" font-size="10.5" text-anchor="middle" fill="var(--c-col)" font-weight="600" font-family="IBM Plex Mono, monospace">还有 152 个在排队</text>
+<text x="495.5" y="246" font-size="9.5" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">平均每 CU 2.46 个 —— 驻留 1 还是 2，差一倍的并发</text>
+<text x="815.5" y="34" font-size="13" text-anchor="middle" font-weight="700" font-family="IBM Plex Mono, monospace">4096³</text>
+<text x="815.5" y="50" font-size="10" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">1024 个 block → 104 个 CU</text>
+<rect x="700" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="718" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="736" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="754" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="772" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="790" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="808" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="826" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="844" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="862" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="880" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="898" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="916" y="66" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="700" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="718" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="736" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="754" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="772" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="790" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="808" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="826" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="844" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="862" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="880" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="898" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="916" y="84" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="700" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="718" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="736" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="754" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="772" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="790" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="808" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="826" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="844" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="862" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="880" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="898" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="916" y="102" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="700" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="718" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="736" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="754" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="772" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="790" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="808" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="826" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="844" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="862" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="880" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="898" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="916" y="120" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="700" y="138" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="718" y="138" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="736" y="138" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="754" y="138" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="772" y="138" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="790" y="138" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="808" y="138" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="826" y="138" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="844" y="138" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="862" y="138" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="880" y="138" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="898" y="138" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="916" y="138" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="700" y="156" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="718" y="156" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="736" y="156" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="754" y="156" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="772" y="156" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="790" y="156" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="808" y="156" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="826" y="156" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="844" y="156" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="862" y="156" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="880" y="156" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="898" y="156" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="916" y="156" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="700" y="174" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="718" y="174" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="736" y="174" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="754" y="174" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="772" y="174" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="790" y="174" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="808" y="174" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="826" y="174" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="844" y="174" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="862" y="174" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="880" y="174" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="898" y="174" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="916" y="174" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="700" y="192" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="718" y="192" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="736" y="192" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="754" y="192" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="772" y="192" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="790" y="192" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="808" y="192" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="826" y="192" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="844" y="192" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="862" y="192" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="880" y="192" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="898" y="192" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<rect x="916" y="192" width="15" height="15" rx="2" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<text x="815.5" y="230" font-size="10.5" text-anchor="middle" fill="var(--c-col)" font-weight="600" font-family="IBM Plex Mono, monospace">还有 920 个在排队</text>
+<text x="815.5" y="246" font-size="9.5" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">平均每 CU 9.85 个 —— 驻留 1 还是 2，差一倍的并发</text></svg>
+    <figcaption><code>1024³</code> 只有 64 个 block，比 CU 还少 —— 40 个 CU 全程空着，每个干活的 CU 手里也只有一个 block。这时候「驻留得下两个」是一张用不上的牌，双缓冲让掉它不花钱，白赚块内重叠。<code>4096³</code> 有 1024 个 block，平均每 CU 要跑 9.8 个，驻留 1 个还是 2 个直接决定并发度 —— 双缓冲让掉的那一半并发，远比它买到的块内重叠值钱。</figcaption>
+  </figure>
+  <div class="note"><p>
+    <strong>一句话的判据。</strong>
+    <code>(M/128) × (N/128)</code> 明显小于 CU 数 → 用双缓冲；
+    明显大于 → 用单缓冲晚发射，把 LDS 省下来换驻留。
+    这条线和 <code>K</code> 无关：<code>K</code> 只决定窗口数，不决定 block 数。
+  </p></div>
+</section>
+
+<section>
+  <h2>05</h2>
+  <h3>再切一刀到 TK=64：驻留 4 个 block，照样亏</h3>
+  <p>
+    <code>TK=64</code> 看起来是两头都要的那个点：两份缓冲只占 32KB，
+    <strong>驻留和块内重叠同时拿到</strong>；而且顺带把 bank 冲突也消了（第 06 节）。
+    单缓冲更是能驻留到 <strong>4 个 block/CU</strong>。实测全部打脸：
+  </p>
+  <div class="tw"><table>
+    <thead><tr><th>组合</th><th>LDS</th><th>驻留</th><th>4096³ TOPS</th><th>段长/行</th></tr></thead>
+    <tbody>
+      <tr><td>TK=128 单缓冲晚发射</td><td class="n">32 KB</td><td class="n">2</td><td class="n"><strong>292.2</strong></td><td class="n">128 B</td></tr>
+      <tr><td>TK=64 单缓冲晚发射</td><td class="n">16 KB</td><td class="n"><strong>4</strong></td><td class="n">88.7</td><td class="n">64 B</td></tr>
+      <tr><td>TK=64 双缓冲</td><td class="n">32 KB</td><td class="n">2</td><td class="n">155.4</td><td class="n">64 B</td></tr>
+      <tr><td>TK=64 三级流水</td><td class="n">48 KB</td><td class="n">1</td><td class="n">142.5</td><td class="n">64 B</td></tr>
+    </tbody>
+  </table></div>
+  <p>
+    驻留翻到 4 个，TOPS 反而从 292.2 掉到 88.7。
+    原因在最后一列：<strong>一行在一个窗口里只取 <code>TILE_K</code> 个字节，
+    所以 <code>TILE_K</code> 就是全局侧的连续段长</strong>。
+    本机早先实测过跨距读对段长极其敏感（跨距 8KB）：
+    段长 64 B 只有 324 GB/s（线性峰值的 20%），512 B 有 1234 GB/s（77%）。
+    切 K 赚驻留、亏 DRAM 效率，<code>256→128</code> 那一刀赚，再往下这一刀亏。
+  </p>
+  <div class="note"><p>
+    <strong>一个反直觉的细节。</strong>在 <code>TK=64</code> 这档里，
+    驻留 4 个 block 的单缓冲（88.7）<strong>反而比驻留 2 个的双缓冲
+    （155.4）慢 1.75×</strong>。
+    段长只有 64 B 的时候，访存请求又小又多，4 个 block × 256 线程一起发会把访存通路打满；
+    这时候「少一点并发、深一点预取」反而更好。
+    <strong>所以驻留度不是越高越好，它和每个请求的大小是一对的。</strong>
+  </p></div>
+</section>
+
+<section>
+  <h2>06</h2>
+  <h3>顺带：为什么 TK=128 还得留着 XOR，TK=64 就不用了</h3>
+  <p>
+    bank 冲突的根子是「行距是 128 B 的整数倍，于是每行都从 bank 0 开始」。
+    切 K 会改行距，所以切完要重新算一遍：
+  </p>
+  <figure>
+<svg viewBox="0 0 1000 320" role="img" aria-label="TILE_K=128 时每行都从 bank 0 开始所以仍有冲突，TILE_K=64 时奇偶行错开到两个半轮"
+     style="width:100%;max-width:1000px;height:auto;display:block;margin:0 auto"
+     fill="none" stroke="currentColor"><defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6"
+  markerHeight="6" orient="auto-start-reverse">
+  <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs><text x="252" y="30" font-size="13" text-anchor="middle" font-weight="700" font-family="IBM Plex Mono, monospace">TILE_K = 128</text>
+<line x1="60" y1="44" x2="60" y2="50" stroke="var(--fg-faint)" stroke-width="1"/>
+<text x="60" y="41" font-size="8" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">0</text>
+<line x1="108" y1="44" x2="108" y2="50" stroke="var(--fg-faint)" stroke-width="1"/>
+<text x="108" y="41" font-size="8" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">4</text>
+<line x1="156" y1="44" x2="156" y2="50" stroke="var(--fg-faint)" stroke-width="1"/>
+<text x="156" y="41" font-size="8" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">8</text>
+<line x1="204" y1="44" x2="204" y2="50" stroke="var(--fg-faint)" stroke-width="1"/>
+<text x="204" y="41" font-size="8" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">12</text>
+<line x1="252" y1="44" x2="252" y2="50" stroke="var(--fg-faint)" stroke-width="1"/>
+<text x="252" y="41" font-size="8" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">16</text>
+<line x1="300" y1="44" x2="300" y2="50" stroke="var(--fg-faint)" stroke-width="1"/>
+<text x="300" y="41" font-size="8" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">20</text>
+<line x1="348" y1="44" x2="348" y2="50" stroke="var(--fg-faint)" stroke-width="1"/>
+<text x="348" y="41" font-size="8" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">24</text>
+<line x1="396" y1="44" x2="396" y2="50" stroke="var(--fg-faint)" stroke-width="1"/>
+<text x="396" y="41" font-size="8" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">28</text>
+<text x="252" y="66" font-size="9.5" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">32 个 bank（一轮 = 128 B）</text>
+<text x="50" y="95" font-size="10.5" text-anchor="end" font-weight="600" font-family="IBM Plex Mono, monospace">行 0</text>
+<rect x="60" y="78" width="384" height="26" rx="3" fill="var(--surface-2)" stroke="var(--line)" stroke-width="0.8"/>
+<rect x="60" y="80" width="48" height="22" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<text x="84" y="95" font-size="9" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">bank 0-3</text>
+<text x="454" y="95" font-size="9" text-anchor="start" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">字节 0</text>
+<text x="50" y="137" font-size="10.5" text-anchor="end" font-weight="600" font-family="IBM Plex Mono, monospace">行 1</text>
+<rect x="60" y="120" width="384" height="26" rx="3" fill="var(--surface-2)" stroke="var(--line)" stroke-width="0.8"/>
+<rect x="60" y="122" width="48" height="22" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<text x="84" y="137" font-size="9" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">bank 0-3</text>
+<text x="454" y="137" font-size="9" text-anchor="start" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">字节 128</text>
+<text x="50" y="179" font-size="10.5" text-anchor="end" font-weight="600" font-family="IBM Plex Mono, monospace">行 2</text>
+<rect x="60" y="162" width="384" height="26" rx="3" fill="var(--surface-2)" stroke="var(--line)" stroke-width="0.8"/>
+<rect x="60" y="164" width="48" height="22" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<text x="84" y="179" font-size="9" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">bank 0-3</text>
+<text x="454" y="179" font-size="9" text-anchor="start" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">字节 256</text>
+<text x="50" y="221" font-size="10.5" text-anchor="end" font-weight="600" font-family="IBM Plex Mono, monospace">行 3</text>
+<rect x="60" y="204" width="384" height="26" rx="3" fill="var(--surface-2)" stroke="var(--line)" stroke-width="0.8"/>
+<rect x="60" y="206" width="48" height="22" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<text x="84" y="221" font-size="9" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">bank 0-3</text>
+<text x="454" y="221" font-size="9" text-anchor="start" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">字节 384</text>
+<text x="252" y="260" font-size="10" text-anchor="middle" fill="var(--c-col)" font-family="IBM Plex Mono, monospace">行距 128 B = 正好一轮 → 每行都从 bank 0 开始</text>
+<text x="252" y="276" font-size="9.5" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">16 条 lane 全挤在前 16 个 bank → 2 倍冲突，XOR 必须留着</text>
+<text x="732" y="30" font-size="13" text-anchor="middle" font-weight="700" font-family="IBM Plex Mono, monospace">TILE_K = 64</text>
+<line x1="540" y1="44" x2="540" y2="50" stroke="var(--fg-faint)" stroke-width="1"/>
+<text x="540" y="41" font-size="8" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">0</text>
+<line x1="588" y1="44" x2="588" y2="50" stroke="var(--fg-faint)" stroke-width="1"/>
+<text x="588" y="41" font-size="8" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">4</text>
+<line x1="636" y1="44" x2="636" y2="50" stroke="var(--fg-faint)" stroke-width="1"/>
+<text x="636" y="41" font-size="8" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">8</text>
+<line x1="684" y1="44" x2="684" y2="50" stroke="var(--fg-faint)" stroke-width="1"/>
+<text x="684" y="41" font-size="8" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">12</text>
+<line x1="732" y1="44" x2="732" y2="50" stroke="var(--fg-faint)" stroke-width="1"/>
+<text x="732" y="41" font-size="8" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">16</text>
+<line x1="780" y1="44" x2="780" y2="50" stroke="var(--fg-faint)" stroke-width="1"/>
+<text x="780" y="41" font-size="8" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">20</text>
+<line x1="828" y1="44" x2="828" y2="50" stroke="var(--fg-faint)" stroke-width="1"/>
+<text x="828" y="41" font-size="8" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">24</text>
+<line x1="876" y1="44" x2="876" y2="50" stroke="var(--fg-faint)" stroke-width="1"/>
+<text x="876" y="41" font-size="8" text-anchor="middle" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">28</text>
+<text x="732" y="66" font-size="9.5" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">32 个 bank（一轮 = 128 B）</text>
+<text x="530" y="95" font-size="10.5" text-anchor="end" font-weight="600" font-family="IBM Plex Mono, monospace">行 0</text>
+<rect x="540" y="78" width="384" height="26" rx="3" fill="var(--surface-2)" stroke="var(--line)" stroke-width="0.8"/>
+<rect x="540" y="80" width="48" height="22" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<text x="564" y="95" font-size="9" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">bank 0-3</text>
+<text x="934" y="95" font-size="9" text-anchor="start" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">字节 0</text>
+<text x="530" y="137" font-size="10.5" text-anchor="end" font-weight="600" font-family="IBM Plex Mono, monospace">行 1</text>
+<rect x="540" y="120" width="384" height="26" rx="3" fill="var(--surface-2)" stroke="var(--line)" stroke-width="0.8"/>
+<rect x="732" y="122" width="48" height="22" rx="2" fill="var(--b-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<text x="756" y="137" font-size="9" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">bank 16-19</text>
+<text x="934" y="137" font-size="9" text-anchor="start" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">字节 64</text>
+<text x="530" y="179" font-size="10.5" text-anchor="end" font-weight="600" font-family="IBM Plex Mono, monospace">行 2</text>
+<rect x="540" y="162" width="384" height="26" rx="3" fill="var(--surface-2)" stroke="var(--line)" stroke-width="0.8"/>
+<rect x="540" y="164" width="48" height="22" rx="2" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<text x="564" y="179" font-size="9" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">bank 0-3</text>
+<text x="934" y="179" font-size="9" text-anchor="start" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">字节 128</text>
+<text x="530" y="221" font-size="10.5" text-anchor="end" font-weight="600" font-family="IBM Plex Mono, monospace">行 3</text>
+<rect x="540" y="204" width="384" height="26" rx="3" fill="var(--surface-2)" stroke="var(--line)" stroke-width="0.8"/>
+<rect x="732" y="206" width="48" height="22" rx="2" fill="var(--b-col)" stroke="none" stroke-width="1" opacity="0.85"/>
+<text x="756" y="221" font-size="9" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">bank 16-19</text>
+<text x="934" y="221" font-size="9" text-anchor="start" fill="var(--fg-faint)" font-family="IBM Plex Mono, monospace">字节 192</text>
+<text x="732" y="260" font-size="10" text-anchor="middle" fill="var(--b-col)" font-family="IBM Plex Mono, monospace">行距 64 B = 半轮 → 奇偶行劈成两个半轮</text>
+<text x="732" y="276" font-size="9.5" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">两个半轮各分一半 lane → 32 个 bank 全用上，原始布局就是下限</text></svg>
+    <figcaption>左：<code>TILE_K=128</code> 的行距正好是一轮 128 B，所以每一行的起点都落回 bank 0 —— 16 条 lane 读 16 个不同的行、行内偏移相同，全挤在前 16 个 bank，2 倍冲突，<strong>XOR 必须留着</strong>。右：<code>TILE_K=64</code> 的行距只有半轮，偶行从 bank 0 起、奇行从 bank 16 起，16 条 lane 自动劈成两个半轮，再加 4 个 lane 组的四分之一偏移，32 个 bank 全用上 —— <strong>原始布局就已经是下限</strong>。这两张图都是 host 侧的 bank 模型算出来的，<code>./mma_dbuf_256 info</code> 会把同样的数字打出来。</figcaption>
+  </figure>
+  <p>
+    XOR 在双缓冲下比在上一篇更值钱：<code>4096³</code> 去掉它要赔
+    <strong>2.30×</strong>，而上一篇 <code>TK=256</code> 单缓冲下只有 1.85×。
+    解释是同向的 —— 驻留只剩一个 block 时，没有别的 block 来帮着盖 LDS 冲突的延迟。
+    <span class="sub">（这是推论，没有 profiler 直接证据。）</span>
+  </p>
+</section>
+
+<section>
+  <h2>07</h2>
+  <h3>三级流水，和一个只在 host 上才抓到的错</h3>
+  <p>
+    <code>TK=64</code> 下还放得进第三块缓冲（48KB）。多级流水要的不是
+    <code>gvmcnt(0)</code> 而是<strong>部分等待</strong>：等最老那个窗口落地，
+    让更晚的继续飞。写出来是这样：
+  </p>
+<pre><code>constexpr int WAITC = (NBUF - 2) * OPS;   <span class="cmt">// 允许 NBUF-2 个窗口还在飞</span>
+arrive_gvmcnt(WAITC);</code></pre>
+  <p>这段是错的。没有真机的时候，用 host 逐步模拟主循环，穷举 <code>nwin=1..40</code>：</p>
+<pre><code>A. gvmcnt 固定允许 NBUF-2 个在飞
+   NBUF=2 双缓冲    全部通过
+   NBUF=3 三级流水  40 个 nwin 全错 -&gt; 读窗口 0 时它还在飞
+B. 排空阶段降回 gvmcnt(0)
+   全部通过</code></pre>
+  <figure>
+<svg viewBox="0 0 1000 288" role="img" aria-label="三级流水在排空阶段的 gvmcnt 陷阱：在飞数量不足允许量时，等待指令立刻返回"
+     style="width:100%;max-width:1000px;height:auto;display:block;margin:0 auto"
+     fill="none" stroke="currentColor"><defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6"
+  markerHeight="6" orient="auto-start-reverse">
+  <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs><text x="136" y="32" font-size="10" text-anchor="end" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">窗口数 5，三级流水</text>
+<text x="224" y="32" font-size="11.5" text-anchor="middle" font-weight="700" font-family="IBM Plex Mono, monospace">预热</text>
+<rect x="150" y="46" width="148" height="36" rx="3" fill="var(--surface-2)" stroke="var(--line)" stroke-width="0.8" opacity="1"/>
+<text x="224" y="68" font-size="10" text-anchor="middle" fill="var(--fg-dim)" font-weight="400" font-family="IBM Plex Mono, monospace">窗口 0,1</text>
+<rect x="150" y="94" width="148" height="36" rx="3" fill="var(--surface-2)" stroke="var(--line)" stroke-width="0.8" opacity="1"/>
+<text x="224" y="116" font-size="10" text-anchor="middle" fill="var(--fg-dim)" font-weight="400" font-family="IBM Plex Mono, monospace">0 1</text>
+<rect x="150" y="142" width="148" height="36" rx="3" fill="var(--surface-2)" stroke="var(--line)" stroke-width="0.8" opacity="1"/>
+<text x="224" y="164" font-size="10" text-anchor="middle" fill="var(--fg-dim)" font-weight="400" font-family="IBM Plex Mono, monospace">—</text>
+<rect x="150" y="190" width="148" height="36" rx="3" fill="var(--surface-2)" stroke="var(--line)" stroke-width="0.8" opacity="1"/>
+<text x="224" y="212" font-size="10" text-anchor="middle" fill="var(--fg-dim)" font-weight="400" font-family="IBM Plex Mono, monospace">—</text>
+<text x="382" y="32" font-size="11.5" text-anchor="middle" font-weight="700" font-family="IBM Plex Mono, monospace">tk=0</text>
+<rect x="308" y="46" width="148" height="36" rx="3" fill="var(--surface-2)" stroke="var(--line)" stroke-width="0.8" opacity="1"/>
+<text x="382" y="68" font-size="10" text-anchor="middle" fill="var(--fg-dim)" font-weight="400" font-family="IBM Plex Mono, monospace">窗口 2</text>
+<rect x="308" y="94" width="148" height="36" rx="3" fill="var(--surface-2)" stroke="var(--line)" stroke-width="0.8" opacity="1"/>
+<text x="382" y="116" font-size="10" text-anchor="middle" fill="var(--fg-dim)" font-weight="400" font-family="IBM Plex Mono, monospace">1 2</text>
+<rect x="308" y="142" width="148" height="36" rx="3" fill="var(--surface-2)" stroke="var(--line)" stroke-width="0.8" opacity="1"/>
+<text x="382" y="164" font-size="10" text-anchor="middle" fill="var(--fg-dim)" font-weight="400" font-family="IBM Plex Mono, monospace">1 个在飞</text>
+<rect x="308" y="190" width="148" height="36" rx="3" fill="var(--surface-2)" stroke="var(--line)" stroke-width="0.8" opacity="1"/>
+<text x="382" y="212" font-size="10" text-anchor="middle" fill="var(--fg-dim)" font-weight="400" font-family="IBM Plex Mono, monospace">窗口 0 ✓</text>
+<text x="540" y="32" font-size="11.5" text-anchor="middle" font-weight="700" font-family="IBM Plex Mono, monospace">tk=1</text>
+<rect x="466" y="46" width="148" height="36" rx="3" fill="var(--surface-2)" stroke="var(--line)" stroke-width="0.8" opacity="1"/>
+<text x="540" y="68" font-size="10" text-anchor="middle" fill="var(--fg-dim)" font-weight="400" font-family="IBM Plex Mono, monospace">窗口 3</text>
+<rect x="466" y="94" width="148" height="36" rx="3" fill="var(--surface-2)" stroke="var(--line)" stroke-width="0.8" opacity="1"/>
+<text x="540" y="116" font-size="10" text-anchor="middle" fill="var(--fg-dim)" font-weight="400" font-family="IBM Plex Mono, monospace">2 3</text>
+<rect x="466" y="142" width="148" height="36" rx="3" fill="var(--surface-2)" stroke="var(--line)" stroke-width="0.8" opacity="1"/>
+<text x="540" y="164" font-size="10" text-anchor="middle" fill="var(--fg-dim)" font-weight="400" font-family="IBM Plex Mono, monospace">1 个在飞</text>
+<rect x="466" y="190" width="148" height="36" rx="3" fill="var(--surface-2)" stroke="var(--line)" stroke-width="0.8" opacity="1"/>
+<text x="540" y="212" font-size="10" text-anchor="middle" fill="var(--fg-dim)" font-weight="400" font-family="IBM Plex Mono, monospace">窗口 1 ✓</text>
+<text x="698" y="32" font-size="11.5" text-anchor="middle" font-weight="700" font-family="IBM Plex Mono, monospace">tk=3</text>
+<rect x="624" y="46" width="148" height="36" rx="3" fill="var(--surface-2)" stroke="var(--line)" stroke-width="0.8" opacity="1"/>
+<text x="698" y="68" font-size="10" text-anchor="middle" fill="var(--fg-dim)" font-weight="400" font-family="IBM Plex Mono, monospace">（没有了）</text>
+<rect x="624" y="94" width="148" height="36" rx="3" fill="var(--surface-2)" stroke="var(--line)" stroke-width="0.8" opacity="1"/>
+<text x="698" y="116" font-size="10" text-anchor="middle" fill="var(--fg-dim)" font-weight="400" font-family="IBM Plex Mono, monospace">4</text>
+<rect x="624" y="142" width="148" height="36" rx="3" fill="var(--surface-2)" stroke="var(--line)" stroke-width="0.8" opacity="1"/>
+<text x="698" y="164" font-size="10" text-anchor="middle" fill="var(--fg-dim)" font-weight="400" font-family="IBM Plex Mono, monospace">1 个在飞</text>
+<rect x="624" y="190" width="148" height="36" rx="3" fill="var(--surface-2)" stroke="var(--line)" stroke-width="0.8" opacity="1"/>
+<text x="698" y="212" font-size="10" text-anchor="middle" fill="var(--fg-dim)" font-weight="400" font-family="IBM Plex Mono, monospace">窗口 3 ✓</text>
+<text x="856" y="32" font-size="11.5" text-anchor="middle" font-weight="700" font-family="IBM Plex Mono, monospace">tk=4</text>
+<rect x="782" y="46" width="148" height="36" rx="3" fill="var(--surface-2)" stroke="var(--line)" stroke-width="0.8" opacity="1"/>
+<text x="856" y="68" font-size="10" text-anchor="middle" fill="var(--fg-dim)" font-weight="400" font-family="IBM Plex Mono, monospace">（没有了）</text>
+<rect x="782" y="94" width="148" height="36" rx="3" fill="var(--surface-2)" stroke="var(--line)" stroke-width="0.8" opacity="1"/>
+<text x="856" y="116" font-size="10" text-anchor="middle" fill="var(--fg-dim)" font-weight="400" font-family="IBM Plex Mono, monospace">4</text>
+<rect x="782" y="142" width="148" height="36" rx="3" fill="var(--c-col)" stroke="var(--c-col)" stroke-width="1.4" opacity="0.22"/>
+<text x="856" y="164" font-size="10" text-anchor="middle" fill="var(--c-col)" font-weight="700" font-family="IBM Plex Mono, monospace">1 个在飞</text>
+<rect x="782" y="190" width="148" height="36" rx="3" fill="var(--c-col)" stroke="var(--c-col)" stroke-width="1.4" opacity="0.22"/>
+<text x="856" y="212" font-size="10" text-anchor="middle" fill="var(--c-col)" font-weight="700" font-family="IBM Plex Mono, monospace">窗口 4 ✗</text>
+<text x="136" y="68" font-size="10.5" text-anchor="end" font-weight="600" font-family="IBM Plex Mono, monospace">发射</text>
+<text x="136" y="116" font-size="10.5" text-anchor="end" font-weight="600" font-family="IBM Plex Mono, monospace">在飞队列</text>
+<text x="136" y="164" font-size="10.5" text-anchor="end" font-weight="600" font-family="IBM Plex Mono, monospace">gvmcnt 允许</text>
+<text x="136" y="212" font-size="10.5" text-anchor="end" font-weight="600" font-family="IBM Plex Mono, monospace">读</text>
+<text x="545" y="260" font-size="10.5" text-anchor="middle" fill="var(--c-col)" font-family="IBM Plex Mono, monospace">最后一轮：在飞只剩窗口 4 自己，而 gvmcnt 还允许「1 个在飞」—— 它立刻返回，</text>
+<text x="545" y="276" font-size="10.5" text-anchor="middle" fill="var(--c-col)" font-family="IBM Plex Mono, monospace">于是去读一份还在路上的数据。修法：排空阶段把允许量降回 0。</text></svg>
+    <figcaption>流水线尾部不再有新发射，在飞的窗口数降到允许量以下，<code>gvmcnt</code> 就<strong>立刻返回</strong> —— 它的语义是「最多还有 n 个在飞」，不是「等掉一个」。于是去读一份还在路上的数据。<code>nwin</code> 小的时候从第一轮就错，不是只错最后一两轮。修法：流水满的时候用 <code>WAITC</code>，排空阶段降回 <code>gvmcnt(0)</code>，两个实参都是编译期常量（<code>arrive</code> 要立即数）。</figcaption>
+  </figure>
+  <div class="note"><p>
+    <strong>双缓冲不受这个影响</strong>：<code>NBUF=2</code> 时 <code>WAITC</code> 本来就是 0，
+    等的就是 <code>gvmcnt(0)</code>。所以这个坑只在往更深的流水走的时候才踩到。
+    修好之后三级流水在真机上 <code>256³</code> / <code>1024³</code> 都 PASS，
+    也就顺带验证了 <strong><code>gvmcnt</code> 是按发射序回落的</strong> ——
+    这件事之前没有依据，只能靠正确性检查来裁决。
+  </p></div>
+  <p>
+    性能上三级流水没意义：48KB 把驻留压回 1 个 block，
+    <code>4096³</code> 只有 142.5 TOPS，比同 <code>TK</code> 的双缓冲还慢。
+  </p>
+</section>
+
+<section>
+  <h2>08</h2>
+  <h3>测量的离散度</h3>
+  <p>
+    上一篇留了个尾巴：最快那档跨进程差过 20.6%，原因未知。这次换成
+    <strong>同一进程内重复 7 轮</strong>（轮内顺序逐轮颠倒），四档一起测：
+  </p>
+  <div class="tw"><table>
+    <thead><tr><th>组合</th><th>7 轮的 us</th><th>最快</th><th>中位</th><th>最慢</th></tr></thead>
+    <tbody>
+      <tr><td class="n">TK=128 顶部发射</td><td class="n" style="white-space:normal">585.9 · 586.2 · 586.2 · 585.8 · 586.3 · 659.2 · 586.4</td><td class="n">585.8</td><td class="n">586.2</td><td class="n">659.2</td></tr>
+      <tr><td class="n">TK=128 晚发射</td><td class="n" style="white-space:normal">488.4 · 500.0 · 474.5 · 486.7 · 497.5 · 578.0 · 488.5</td><td class="n">474.5</td><td class="n">488.5</td><td class="n">578.0</td></tr>
+      <tr><td class="n">TK=128 双缓冲</td><td class="n" style="white-space:normal">716.1 · 717.0 · 716.5 · 716.6 · 716.9 · 805.0 · 716.6</td><td class="n">716.1</td><td class="n">716.6</td><td class="n">805.0</td></tr>
+      <tr><td class="n">TK=128 双缓冲 无XOR</td><td class="n" style="white-space:normal">1644.7 · 1645.1 · 1650.1 · 1780.8 · 1738.0 · 1786.4 · 1645.4</td><td class="n">1644.7</td><td class="n">1650.1</td><td class="n">1786.4</td></tr>
+    </tbody>
+  </table></div>
+  <p>
+    看第 6 轮：<strong>四个组合同时慢了 12~13%</strong>。
+    四个不同的 kernel 在同一轮里一起变慢，这不是哪个配置的性质，
+    是那一轮整机被什么东西干扰了。
+    把第 6 轮摘掉，其余六轮的中位数几乎一字不差
+    （586.2 / 488.5 / 716.6 / 1650.1）。
+  </p>
+  <div class="note"><p>
+    <strong>这也回头解释了上一篇那个 20.6%。</strong>
+    那次是 7 个<strong>独立进程</strong>各测一次，正好把这种整机级干扰算进了配置的离散度里。
+    同进程多轮 + 轮内顺序颠倒能把两者分开：
+    <strong>配置自身的重复性其实很好（&lt; 0.2%）</strong>，
+    跳变来自进程外部。至于干扰源是什么，这页依然给不出结论。
+  </p></div>
+</section>
+
+<section>
+  <h2>09</h2>
+  <h3>一路走下来</h3>
+  <div class="tw"><table>
+    <thead><tr><th>做了什么</th><th>4096³ TOPS</th><th>1024³ TOPS</th><th>驻留</th></tr></thead>
+    <tbody>
+      <tr><td>起点：朴素拷贝 + 原始 LDS 布局<span class="sub">（第一篇）</span></td><td class="n">83.3</td><td class="n">—</td><td class="n">1</td></tr>
+      <tr><td>+ XOR swizzle 消 bank 冲突<span class="sub">（第一篇）</span></td><td class="n">152.0</td><td class="n">—</td><td class="n">1</td></tr>
+      <tr><td>+ BSM 异步搬运<span class="sub">（第一篇）</span></td><td class="n">153.5</td><td class="n">—</td><td class="n">1</td></tr>
+      <tr><td>+ 晚发射让搬运和 MMA 重叠<span class="sub">（第二篇）</span></td><td class="n">185.0</td><td class="n">—</td><td class="n">1</td></tr>
+      <tr><td><strong>TK=128 单缓冲晚发射</strong><span class="sub">（大矩阵最优）</span></td><td class="n"><strong>292.2</strong></td><td class="n">95.1</td><td class="n">2</td></tr>
+      <tr><td><strong>TK=128 双缓冲</strong><span class="sub">（block 填不满机器时最优）</span></td><td class="n">191.9</td><td class="n"><strong>96.9</strong></td><td class="n">1</td></tr>
+      <tr><td><span class="sub">（试过，亏，没留）</span>TK=64 的三档</td><td class="n">88.7–155.4</td><td class="n">64.6–68.7</td><td class="n">1–4</td></tr>
+    </tbody>
+  </table></div>
+  <h3 style="margin-top:28px">验证状态</h3>
+  <div class="tw"><table>
+    <thead><tr><th>结论</th><th>凭什么</th><th>状态</th></tr></thead>
+    <tbody>
+      <tr><td>八个组合数值都对</td><td>C500 实跑 <code>256³</code> 与 <code>1024³</code>，对 CPU 参考 0 不符</td><td><strong>已验</strong></td></tr>
+      <tr><td>驻留 block/CU = 2/1/4/2/1</td><td><code>mcOccupancyMaxActiveBlocksPerMultiprocessor</code> 实测</td><td><strong>已验</strong></td></tr>
+      <tr><td>双缓冲在 <code>1024³</code> 最快、在 <code>4096³</code> 最慢</td><td>C500 实跑三个规模，两轮顺序颠倒取快者</td><td><strong>已验</strong></td></tr>
+      <tr><td>XOR 在双缓冲下值 2.30×</td><td>同 LDS、同驻留下只改布局的对照</td><td><strong>已验</strong></td></tr>
+      <tr><td><code>TK=64</code> 三档都比 <code>TK=128</code> 慢</td><td>C500 实跑 <code>4096³</code></td><td><strong>已验</strong></td></tr>
+      <tr><td>第 6 轮是整机干扰，不是配置性质</td><td>四个不同 kernel 在同一轮同时慢 12~13%</td><td><strong>已验</strong></td></tr>
+      <tr><td>三级流水的排空陷阱真的会读脏数据</td><td>host 逐步模拟 <code>nwin=1..40</code>；修好后真机 PASS</td><td><strong>已验</strong></td></tr>
+      <tr><td>bank 模型（行距 → 起点 → 拍数）</td><td>host 穷举，与前两篇同一套公式</td><td><strong>已验</strong></td></tr>
+      <tr><td>「名次翻转是因为 block 填不满 CU」</td><td>block 数、驻留、名次三者完全同向，但没有 profiler 直接证据</td><td>推论</td></tr>
+      <tr><td>「<code>TK=64</code> 亏在 64 B 的段长」</td><td>和早先的跨距读实测同向（64 B → 20% 带宽），本篇没单独测段长</td><td>推论</td></tr>
+      <tr><td>第 6 轮那次干扰的来源</td><td>没有定位</td><td>未知</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<footer>
+  <p>
+    代码：<code>mma_dbuf_256.cu</code>（<code>TILE_K</code> × 缓冲数 × 发射方式 × 布局
+    四个编译期开关，八个组合同源实例化）。
+    <code>./mma_dbuf_256 info</code> 打印 LDS 预算和 bank 模型（纯 CPU，不用 GPU），
+    <code>occ</code> 打印实测驻留，<code>b128</code> 只测 TK=128 四档并给离散度，
+    <code>bench</code> 做八路对照。
+    前两篇见<strong>《一个 XOR，把 LDS 读砍掉一半》</strong>和
+    <strong>《双缓冲为什么反而更慢》</strong> —— 本篇把后者的结论限定在了大矩阵上。
+  </p>
+</footer>
+
+</div>
+</body>
+</html>
