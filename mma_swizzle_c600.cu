@@ -55,10 +55,12 @@
 //  ---- 还没核实、第一次上真机要查的东西 ----
 //   A. arch 串到底是 xcore1500 还是 1520/1600。`mxcc --offload-arch=help`
 //      或 mx-smi 能给。本文件只在注释里写，不硬编码。
-//   B. mma_16x16x32i8 的真实签名。本文件按「a/b 各是一个 64 位打包」写成 long；
-//      若 SDK 写的是 int2，加 -DMX_FRAG64_AS_V2I32 即可。核对命令：
-//        grep -n 'mma_16x16x32i8' \
-//          /opt/maca/mxgpu_llvm/lib/clang/*/include/__clang_maca_mma_functions.h
+//   B. ~~mma_16x16x32i8 的真实签名~~  **已核实**：a/b 都是 int2
+//      （不是 long —— 第一版按 long 写，编译器直接拒了）。
+//      而且整份文件已经能编给 xcore1500：
+//        mxcc -x maca -O3 --offload-arch=xcore1500 -DMX_ARCH=600 -c mma_swizzle_c600.cu
+//      生成 512 条 `mma_i32_16x16x32i8`（4 个实例 × 128 条/实例，正好是 K=16 的一半），
+//      异步搬运那条 `ldg_b128 ... bsm` 原样还在。**编得过，但没上过 C600。**
 //   C. 累加器布局。输出块还是 16x16，所以极可能和 K=16 逐字相同
 //      （m0=(lane>>4)*4, n=lane&15）。不同的话正确性检查会立刻 FAIL，
 //      改第 4 段那两行即可。
@@ -195,17 +197,23 @@ typedef __attribute__((ext_vector_type(4))) int i32x4;  // 累加器：4 个 int
 // 元素类型，而 clang 不允许「向量的向量」。builtin 真实操作数类型若不是它，
 // 在调用处转一下（mx_as_op），-O3 下这就是个寄存器改名，不生成指令。
 #if MX_MMA_K == 32
-typedef long mx_frag;  // 8B = 8 个 int8
-#ifdef MX_FRAG64_AS_V2I32
-typedef __attribute__((ext_vector_type(2))) int mx_op;  // 备选签名：int2
+typedef long mx_frag;  // 8B = 8 个 int8（片段的存放类型，标量）
+// builtin 的真实操作数类型是 **int2**，不是 long —— 已核实：
+//   mxcc --offload-arch=xcore1500 对着 long 直接报
+//   "cannot initialize a parameter of type '...vector_size__(2 * sizeof(int))'
+//    ... with an lvalue of type 'const long'"
+//   换成 int2 之后整份文件编得过，生成 512 条 mma_i32_16x16x32i8。
+// 留 -DMX_FRAG64_AS_LONG 只是为了将来万一换了 SDK 还能退回去。
+#ifdef MX_FRAG64_AS_LONG
+typedef mx_frag mx_op;
+static __device__ __forceinline__ mx_op mx_as_op(mx_frag v) { return v; }
+#else
+typedef __attribute__((ext_vector_type(2))) int mx_op;
 static __device__ __forceinline__ mx_op mx_as_op(mx_frag v) {
   mx_op r;
   __builtin_memcpy(&r, &v, sizeof(r));
   return r;
 }
-#else
-typedef mx_frag mx_op;
-static __device__ __forceinline__ mx_op mx_as_op(mx_frag v) { return v; }
 #endif
 #define MX_MMA(a, b, c)                                                        \
   __builtin_mxc_mma_16x16x32i8(mx_as_op(a), mx_as_op(b), (c))
