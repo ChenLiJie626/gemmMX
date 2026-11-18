@@ -28,7 +28,9 @@
 | [`docs/C500-int8-MMA-acc与写回.html`](docs/) | **acc 在哪，第四步要不要等**，6 张图。acc 是私有寄存器但指令是 wave 级集体操作；一条 MMA 只跨 16 个 k，终值要 16 条累加；写回前为什么不要 barrier |
 | [`docs/C500-int8-MMA-acc与写回.pdf`](docs/) | 同上，12 页 |
 | [`docs/C500-int8-MMA-双缓冲分水岭.html`](docs/) | **双缓冲的规模分水岭**，6 张图。切 K 把双缓冲做出来并在真机上验过；胜负只取决于 block 够不够填满 104 个 CU —— `1024³` 双缓冲最快，`4096³` 最慢 |
-| [`docs/C500-int8-MMA-双缓冲分水岭.pdf`](docs/) | 同上，11 页 |
+| [`docs/C500-int8-MMA-双缓冲分水岭.pdf`](docs/) | 同上，12 页 |
+| [`docs/C500-int8-MMA-BSM异步拷贝.html`](docs/) | **BSM 异步拷贝的真身**，6 张图。把 `__builtin_mxc_ldg_b128_bsm_predicator` 扒到 LLVM IR：十个实参其实是五个操作数，四个布尔开关的真机真值表，以及三个会咬人的地方 |
+| [`docs/C500-int8-MMA-BSM异步拷贝.pdf`](docs/) | 同上，10 页 |
 
 HTML 是自包含的（SVG 内联、样式内联），只有字体走 Google Fonts CDN，离线打开会回落到系统字体。
 浏览器里 Ctrl+P 就能印出与仓库里 PDF 一致的版面。
@@ -83,6 +85,9 @@ $MXCC -x maca -O3 mma_teach_256.cu -o mma_teach_256
 | `mma_swizzle_256.cu` | 256×256×256 | **XOR swizzle 版**，搬运走基线的 BSM 异步通路。`template <bool SW, bool ASYNC>` 两个正交开关 = 四个组合，除这两处外逐字相同，所以「异步值多少」和「XOR 值多少」分得开 |
 | **`mma_pipeline_256.cu`** | 256×256×256 | **搬运/计算重叠版**（本分支最快）。`template <int TK, int MODE>` = 五个组合：顶部发射 / 单缓冲晚发射 / 双缓冲 × `TILE_K` 256/128。带 `occ` 子命令直接查每 CU 驻留 block 数 |
 | **`mma_dbuf_256.cu`** | 128×128×TK | **切 K 换双缓冲**。`TILE_K` × 缓冲数 × 发射方式 × 布局四个编译期开关 = 八个组合同源实例化，含三级流水。带 `info`（纯 CPU 的 LDS 预算 + bank 模型）、`occ`（实测驻留）、`b128`（只测 TK=128 四档并给离散度） |
+| `bsmprobe.cu` | 1 wave | **四个布尔开关的真值表探针**。LDS 预填哨兵，`K` 选得让一半 lane 谓词为假，逐位翻转看落进 LDS 的是数据 / 零 / 哨兵 |
+| `iso.cu` | 四变体 | **返回值崩溃的隔离**。动态/静态 LDS × 丢弃/接住返回值，只有「接住」那两格编译崩 |
+| `waitprobe2.cu` | 512 block | **`arrive` 到底在不在等**。四种等待写法 × 读自己搬的/读别人搬的，每格 104 万次对答案 |
 
 数据约定（八个文件一致）：
 
@@ -178,12 +183,73 @@ C: M × N  行主序 int32
 2. **XOR 在双缓冲下更值钱**：去掉它要赔 2.30×（上一篇 `TK=256` 单缓冲下是 1.85×）。
    `TK=128` 的行距正好一轮，每行仍从 bank 0 开始，**XOR 必须留着**；
    `TK=64` 的行距只有半轮，奇偶行自动劈开，原始布局就已经是下限。
-3. **三级流水有个只在 host 上才抓到的错**。多级流水要的是部分等待
+3. **三级流水的排空陷阱 —— 以及一条要更正的话**。多级流水要的是部分等待
    `arrive_gvmcnt((NBUF-2)*OPS)`，但流水排空时在飞数量不足允许量，这条指令会
-   **立刻返回**，于是读一份还在路上的数据。host 逐步模拟 `nwin=1..40` 全错，
-   不是只错最后一两轮。修法是排空阶段降回 `gvmcnt(0)`。
-   双缓冲不受影响（`NBUF=2` 时本来就是 `gvmcnt(0)`）。修好后真机 PASS，
-   也就顺带验证了 `gvmcnt` 是按发射序回落的。
+   **立刻返回**。host 逐步模拟 `nwin=1..40` 全部违约，修法是排空阶段降回 `gvmcnt(0)`。
+   **但这个「错」真机上没复现**：把没修的版本原样跑，`256³`/`1024³` 八个组合全 PASS。
+   再往下挖（见下一篇），把 `arrive` 和 `barrier` 全删掉、让一条 lane 去读另一条 lane
+   搬进来的数据，104 万次也一次没读到脏数据。所以模拟证明的是**「按 `gvmcnt` 的契约会违约」**，
+   不是「真机会算错」；修正该留着（守契约，而不是依赖没文档、也查不出机理的兜底），
+   但它**不是**这些 kernel 算对的原因。
+
+## BSM 异步拷贝的真身（`bsmprobe.cu` / `iso.cu` / `waitprobe2.cu`）
+
+前面三篇一直在用 `__builtin_mxc_ldg_b128_bsm_predicator`，但没人说得清它那十个实参
+各是什么。把它扒到 LLVM IR（`mxcc -fatbc` → `clang-offload-bundler --unbundle` →
+`llvm-dis`，这台机器上没有设备 ISA 反汇编器，IR 是能走到的最低一层）：
+
+```llvm
+%13 = call i64 @llvm.mxc.icmp.i64.i32(i32 %koff, i32 %K, i32 40)
+%14 = call <4 x i32> @llvm.mxc.ldg.predicator.bsm.v4i32(
+        ptr addrspace(3) %6, ptr addrspace(1) %12, i32 0, i64 %13,
+        i1 true, i1 true, i1 false, i1 true)
+
+declare <4 x i32> @llvm.mxc.ldg.predicator.bsm.v4i32(
+    ptr addrspace(3) noalias nocapture, ptr addrspace(1) noalias nocapture,
+    i32 immarg, i64, i1 immarg, i1 immarg, i1 immarg, i1 immarg)
+```
+
+**十个实参在 IR 里只有五个操作数**：最后三个（`koff, K, CMP_SLT`）不是三个参数，
+是一条比较的三要素，被折成 `llvm.mxc.icmp.i64.i32`，产出一个 **i64 —— 一位一条 lane**，
+正好覆盖一个 wave 的 64 条。两个指针被钉死在 addrspace(3)/(1)，偏移和四个开关都是
+`immarg`（必须编译期常量）。
+
+### 四个开关的真机真值表
+
+SDK 自带的 `memcpy_async_pred` 传的是 `(Ret0=false, true, false, false)`，
+我们（抄 `kernel_test_v1.cu`）传的是 `(true, true, false, true)` —— **第 1 和第 4 个不一样**。
+逐位翻转实测：
+
+| 组合 | 谓词真的 lane | 谓词假的 lane | 结论 |
+|---|---|---|---|
+| 我们 `(1,1,0,1)` | 数据 | **零** | |
+| SDK `(0,1,0,0)` | 数据 | **哨兵（没动）** | |
+| 只翻 F1 `(0,1,0,1)` | 数据 | 哨兵 | **F1 管「谓词假时清零还是不动」** |
+| 只翻 F4 `(1,1,0,0)` | 数据 | 零 | F4 无影响 |
+| 只翻 F2 `(1,0,0,1)` | 数据 | 零 | F2 无影响 |
+| 只翻 F3 `(1,1,1,1)` | **零** | **数据** | **F3 = 把谓词取反** |
+
+我们和 SDK 唯一有行为差别的是 F1，而 kernel 里 `koff = tk*TILE_K + j*16` 恒小于 `K`，
+**谓词全真**，这条分支根本走不到。实测整组换成 SDK 的标志，八个组合数值完全一致，
+`4096³` 下七档计时逐项持平（< 0.3%）。反过来说，**整套谓词机制在这儿是空转的** ——
+每条 BSM 白搭一条 `icmp`，想省就换不带 predicator 的版本。
+
+### 三个会咬人的地方
+
+1. **接住返回值 = 编译器后端崩**。它返回 `<4 x i32>`；丢弃没事，一旦接住就是
+   `error: Illegal instruction detected: Operand has incorrect register class`。
+   和 LDS 是动态还是静态无关（`iso.cu` 四变体隔离过）。
+   讽刺的是 **SDK 自己的 `memcpy_async_pred` 正是 `return` 它的**，
+   照 SDK 推荐写法写、再用一下结果就会踩中；我们抄的是丢弃写法，恰好避开。
+2. **真正的硬前提是 16B 对齐，不是那些开关**。`b128` 两头都要 16B 对齐：
+   LDS 落点恒为 `tid*16 + i*(一轮字节数)` 没问题，global 侧要求 **`K % 16 == 0`**
+   且 `A` 16B 对齐（`mcMalloc` 给 256B）。`K` 不是 16 的倍数时**这才是真 UB**，
+   而且不会编译报错也不会运行报错。本仓库的 `main` 挡的是 `K % 256`，顺带盖住了。
+3. **那句 `arrive` 说不清**。我们写 `arrive_gvmcnt(0)` = `__builtin_mxc_arrive(64)`，
+   而 SDK 的 `__pipeline_wait_prior` **忽略它的参数**，永远发 `arrive(0x3040)`
+   （`0x3040 = 0x3000 | 0x40`，低字节正好是我们那个 64）。实测把 `arrive` 和
+   `barrier` 全删掉、跨 lane 读，104 万次全对。所以要么后端自己插了等待，
+   要么延迟总是来得及 —— **要分辨得看 ISA，而这台机器上没有设备反汇编器**。
 
 ## 验证状态
 

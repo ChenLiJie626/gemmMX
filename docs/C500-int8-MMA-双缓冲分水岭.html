@@ -1053,14 +1053,22 @@ B. 排空阶段降回 gvmcnt(0)
 <text x="136" y="212" font-size="10.5" text-anchor="end" font-weight="600" font-family="IBM Plex Mono, monospace">读</text>
 <text x="545" y="260" font-size="10.5" text-anchor="middle" fill="var(--c-col)" font-family="IBM Plex Mono, monospace">最后一轮：在飞只剩窗口 4 自己，而 gvmcnt 还允许「1 个在飞」—— 它立刻返回，</text>
 <text x="545" y="276" font-size="10.5" text-anchor="middle" fill="var(--c-col)" font-family="IBM Plex Mono, monospace">于是去读一份还在路上的数据。修法：排空阶段把允许量降回 0。</text></svg>
-    <figcaption>流水线尾部不再有新发射，在飞的窗口数降到允许量以下，<code>gvmcnt</code> 就<strong>立刻返回</strong> —— 它的语义是「最多还有 n 个在飞」，不是「等掉一个」。于是去读一份还在路上的数据。<code>nwin</code> 小的时候从第一轮就错，不是只错最后一两轮。修法：流水满的时候用 <code>WAITC</code>，排空阶段降回 <code>gvmcnt(0)</code>，两个实参都是编译期常量（<code>arrive</code> 要立即数）。</figcaption>
+    <figcaption>流水线尾部不再有新发射，在飞的窗口数降到允许量以下，<code>gvmcnt</code> 就<strong>立刻返回</strong> —— 它的语义是「最多还有 n 个在飞」，不是「等掉一个」。<strong>按这条契约</strong>，接下来读到的是一份还在路上的数据；<code>nwin</code> 小的时候从第一轮就违约，不是只在最后一两轮。修法：流水满的时候用 <code>WAITC</code>，排空阶段降回 <code>gvmcnt(0)</code>，两个实参都是编译期常量（<code>arrive</code> 要立即数）。</figcaption>
   </figure>
   <div class="note"><p>
-    <strong>双缓冲不受这个影响</strong>：<code>NBUF=2</code> 时 <code>WAITC</code> 本来就是 0，
-    等的就是 <code>gvmcnt(0)</code>。所以这个坑只在往更深的流水走的时候才踩到。
-    修好之后三级流水在真机上 <code>256³</code> / <code>1024³</code> 都 PASS，
-    也就顺带验证了 <strong><code>gvmcnt</code> 是按发射序回落的</strong> ——
-    这件事之前没有依据，只能靠正确性检查来裁决。
+    <strong>要紧的更正：这个「错」真机上没复现。</strong>
+    后来把没修的版本原样跑了一遍，<code>256³</code> 和 <code>1024³</code> 八个组合<strong>全 PASS</strong>。
+    再往下挖：把 <code>arrive</code> 和 <code>barrier</code> 全删掉、让一条 lane 去读
+    <strong>另一条 lane 搬进来的</strong> 数据（编译器推不出这个依赖），104 万次读
+    <strong>一次都没读到脏数据</strong>。
+    所以要么后端在 LDS 读之前自己插了等待，要么延迟总是来得及 ——
+    这台机器上<strong>没有设备 ISA 反汇编器</strong>，分不出是哪一种。
+  </p><p>
+    于是上面那段模拟证明的是<strong>「按 <code>gvmcnt</code> 的契约会违约」</strong>，
+    不是「真机会算错」。修正该留着 —— 让代码守契约，而不是依赖一个没写进文档、
+    也查不出机理的兜底 —— 但它<strong>不是</strong>这几个 kernel 算对的原因。
+    <code>NBUF=2</code> 的双缓冲从头到尾不涉及这件事（<code>WAITC</code> 恒为 0）。
+    细节见下一篇<strong>《BSM 异步拷贝的真身》</strong>。
   </p></div>
   <p>
     性能上三级流水没意义：48KB 把驻留压回 1 个 block，
@@ -1125,7 +1133,9 @@ B. 排空阶段降回 gvmcnt(0)
       <tr><td>XOR 在双缓冲下值 2.30×</td><td>同 LDS、同驻留下只改布局的对照</td><td><strong>已验</strong></td></tr>
       <tr><td><code>TK=64</code> 三档都比 <code>TK=128</code> 慢</td><td>C500 实跑 <code>4096³</code></td><td><strong>已验</strong></td></tr>
       <tr><td>第 6 轮是整机干扰，不是配置性质</td><td>四个不同 kernel 在同一轮同时慢 12~13%</td><td><strong>已验</strong></td></tr>
-      <tr><td>三级流水的排空陷阱真的会读脏数据</td><td>host 逐步模拟 <code>nwin=1..40</code>；修好后真机 PASS</td><td><strong>已验</strong></td></tr>
+      <tr><td>排空时 <code>gvmcnt</code> 的允许量会违约</td><td>host 逐步模拟 <code>nwin=1..40</code>，按契约推</td><td><strong>已验</strong>（模型）</td></tr>
+      <tr><td>但真机上没复现：不修也全 PASS</td><td>未修版本实跑 <code>256³</code>/<code>1024³</code>，八个组合 0 不符</td><td><strong>已验</strong></td></tr>
+      <tr><td>到底是编译器插了等待还是延迟来得及</td><td>没有设备 ISA 反汇编器，无法分辨</td><td>未知</td></tr>
       <tr><td>bank 模型（行距 → 起点 → 拍数）</td><td>host 穷举，与前两篇同一套公式</td><td><strong>已验</strong></td></tr>
       <tr><td>「名次翻转是因为 block 填不满 CU」</td><td>block 数、驻留、名次三者完全同向，但没有 profiler 直接证据</td><td>推论</td></tr>
       <tr><td>「<code>TK=64</code> 亏在 64 B 的段长」</td><td>和早先的跨距读实测同向（64 B → 20% 带宽），本篇没单独测段长</td><td>推论</td></tr>
@@ -1143,6 +1153,8 @@ B. 排空阶段降回 gvmcnt(0)
     <code>bench</code> 做八路对照。
     前两篇见<strong>《一个 XOR，把 LDS 读砍掉一半》</strong>和
     <strong>《双缓冲为什么反而更慢》</strong> —— 本篇把后者的结论限定在了大矩阵上。
+    第 07 节那条异步搬运指令本身的解剖（IR、四个标志的真值表、返回值的雷）
+    见下一篇<strong>《BSM 异步拷贝的真身》</strong>。
   </p>
 </footer>
 
