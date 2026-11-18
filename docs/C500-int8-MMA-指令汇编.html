@@ -1,0 +1,633 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MMA 的四个操作数</title>
+<style>
+  /* 布局:单栏,交互块满宽,所有坐标与计数用等宽字体 */
+  :root {
+    --bg: #f7f8fa; --surface: #fff; --surface-2: #eceff4;
+    --fg: #16202c; --fg-dim: #556379; --fg-faint: #8694a7;
+    --line: #d6dce5; --accent: #0a6fb5; --accent-soft: #e3eff8;
+    --a-col: #0a6fb5; --b-col: #0f7a52; --c-col: #b5560a;
+    --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+    --sans: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0d1117; --surface: #151b24; --surface-2: #1e2631;
+      --fg: #e4eaf2; --fg-dim: #9babc0; --fg-faint: #67788d;
+      --line: #2b3643; --accent: #4caae8; --accent-soft: #15293a;
+      --a-col: #4caae8; --b-col: #43c494; --c-col: #e09243;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d1117; --surface: #151b24; --surface-2: #1e2631;
+    --fg: #e4eaf2; --fg-dim: #9babc0; --fg-faint: #67788d;
+    --line: #2b3643; --accent: #4caae8; --accent-soft: #15293a;
+    --a-col: #4caae8; --b-col: #43c494; --c-col: #e09243;
+    color-scheme: dark;
+  }
+
+  body {
+    background: var(--bg); color: var(--fg); font-family: var(--sans);
+    font-size: 15px; line-height: 1.68;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 0 72px;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; }
+
+  header { padding-block: 40px 26px; border-bottom: 1px solid var(--line); }
+  h1 { font-size: clamp(26px, 5vw, 38px); line-height: 1.14; margin: 0 0 14px;
+       font-weight: 700; letter-spacing: -0.02em; text-wrap: balance; }
+  .lede { font-size: 17px; color: var(--fg-dim); max-width: 60ch; margin: 0; }
+
+  section { padding-block: 36px 6px; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em;
+       color: var(--fg-faint); font-weight: 600; margin: 0 0 6px; font-family: var(--mono); }
+  h3 { font-size: 22px; margin: 0 0 15px; font-weight: 650; letter-spacing: -0.01em; text-wrap: balance; }
+  h4 { font-size: 15.5px; margin: 24px 0 9px; font-weight: 600; }
+  p { margin: 0 0 14px; max-width: 70ch; }
+  ul, ol { margin: 0 0 15px; padding-left: 21px; max-width: 70ch; }
+  li { margin-bottom: 6px; }
+  code { font-family: var(--mono); font-size: 0.89em; background: var(--surface-2);
+         padding: 1px 5px; border-radius: 4px; border: 1px solid var(--line); }
+  pre { font-family: var(--mono); font-size: 12.5px; line-height: 1.62;
+        background: var(--surface); border: 1px solid var(--line); border-radius: 7px;
+        padding: 14px 16px; overflow-x: auto; margin: 0 0 16px; }
+  pre code { background: none; border: none; padding: 0; font-size: inherit; }
+  .cmt { color: var(--fg-faint); }
+  .kw { color: var(--accent); }
+  strong { font-weight: 650; }
+
+  .panel { background: var(--surface); border: 1px solid var(--line);
+           border-radius: 9px; padding: 18px; margin: 0 0 18px; }
+
+  .note { border-left: 3px solid var(--accent); background: var(--accent-soft);
+          padding: 12px 15px; border-radius: 0 6px 6px 0; margin: 0 0 18px; font-size: 14.5px; }
+  .note p:last-child { margin-bottom: 0; }
+
+  /* ---- 16x16 网格 ---- */
+  .g16 { display: grid; grid-template-columns: repeat(16, 1fr); gap: 1.5px;
+         aspect-ratio: 1; }
+  .g16 > div { background: var(--surface-2); border-radius: 2px; transition: background .1s; }
+  .gA > div.on { background: var(--a-col); }
+  .gB > div.on { background: var(--b-col); }
+  .gC > div.on { background: var(--c-col); }
+  .gC > div.sel { outline: 2px solid var(--fg); outline-offset: 1px; z-index: 2; }
+
+  .frags { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+  .fb h5 { margin: 0 0 2px; font-size: 13px; font-weight: 600; font-family: var(--mono); }
+  .fb .sub { font-size: 11px; color: var(--fg-faint); margin: 0 0 8px;
+             font-family: var(--mono); line-height: 1.4; min-height: 2.8em; }
+  .fb.a h5 { color: var(--a-col); }
+  .fb.b h5 { color: var(--b-col); }
+  .fb.c h5 { color: var(--c-col); }
+  .axl { display: flex; justify-content: space-between; font-family: var(--mono);
+         font-size: 10px; color: var(--fg-faint); margin-top: 4px; }
+
+  /* ---- lane 选择 ---- */
+  .lanes { display: grid; grid-template-columns: repeat(16, 1fr); gap: 2px; }
+  .lanes button { font-family: var(--mono); font-size: 9.5px; padding: 3px 0; aspect-ratio: 1.6;
+    background: var(--surface-2); color: var(--fg-faint); border: 1px solid var(--line);
+    border-radius: 3px; cursor: pointer; line-height: 1; }
+  .lanes button:hover { color: var(--fg); }
+  .lanes button[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .lanes button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  .ctrls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
+  button.seg { font-family: var(--mono); font-size: 12px; padding: 5px 11px;
+    background: var(--surface-2); color: var(--fg-dim); border: 1px solid var(--line);
+    border-radius: 5px; cursor: pointer; }
+  button.seg:hover { color: var(--fg); border-color: var(--fg-faint); }
+  button.seg:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .readout { font-family: var(--mono); font-size: 12.5px; line-height: 1.8;
+    background: var(--surface-2); border: 1px solid var(--line);
+    border-radius: 7px; padding: 14px 16px; overflow-x: auto; }
+  .readout .k { color: var(--fg-faint); display: inline-block; min-width: 12ch; }
+  .readout .hi { color: var(--accent); font-weight: 600; }
+  .readout .ca { color: var(--a-col); font-weight: 600; }
+  .readout .cb { color: var(--b-col); font-weight: 600; }
+  .readout .cc { color: var(--c-col); font-weight: 600; }
+  .readout hr { border: none; border-top: 1px dashed var(--line); margin: 9px 0; }
+
+  .split { display: grid; grid-template-columns: minmax(0, 300px) minmax(0, 1fr); gap: 18px; align-items: start; }
+  @media (max-width: 680px) { .split { grid-template-columns: minmax(0, 1fr); } }
+
+  .tw { overflow-x: auto; margin: 0 0 18px; border: 1px solid var(--line); border-radius: 7px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { background: var(--surface-2); font-weight: 600; font-size: 11.5px;
+       text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-dim); }
+  tr:last-child td { border-bottom: none; }
+  td.n { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  /* ---- 搬运流程图 ---- */
+  .flow { display: grid; gap: 10px; font-family: var(--mono); font-size: 12px; }
+  .frow { display: grid; grid-template-columns: 7ch 1fr; gap: 12px; align-items: center; }
+  .frow .lbl { color: var(--fg-faint); text-align: right; }
+  .bar { display: flex; gap: 2px; }
+  .bar i { height: 22px; flex: 1; border-radius: 2px; display: grid; place-items: center;
+           font-size: 9.5px; color: #fff; font-style: normal; }
+  .arrow { text-align: center; color: var(--fg-faint); font-size: 11px; }
+
+  footer { margin-top: 42px; padding-top: 20px; border-top: 1px solid var(--line);
+           font-size: 13px; color: var(--fg-faint); }
+  .tag { display: inline-block; font-family: var(--mono); font-size: 10.5px;
+         padding: 2px 7px; border-radius: 4px; background: var(--surface-2);
+         border: 1px solid var(--line); color: var(--fg-dim); margin-right: 5px; }
+  .tag.v { background: var(--b-col); color: #fff; border-color: var(--b-col); }
+  /* ---- 手绘 SVG 图 ---- */
+  figure { margin: 0; }
+  figure svg { max-width: 100%; min-width: 420px; height: auto;
+               display: block; margin: 0 auto; }
+  figcaption { font-size: 13px; color: var(--fg-dim); margin-top: 12px;
+               line-height: 1.55; max-width: 70ch; }
+  .cmap { width: 100%; max-width: 340px; aspect-ratio: 1; display: block;
+           image-rendering: pixelated; border: 1px solid var(--line);
+           border-radius: 6px; cursor: crosshair; }
+  .fig-wrap { background: var(--surface); border: 1px solid var(--line);
+              border-radius: 9px; padding: 16px 18px; margin: 0 0 20px; overflow-x: auto; }
+</style>
+
+
+<style>
+@media print {
+  :root, :root[data-theme="light"] {
+    --bg: #fff; --surface: #fff; --surface-2: #f2f4f7;
+    --fg: #16202c; --fg-dim: #4a5869; --fg-faint: #78879a;
+    --line: #c7cfda; --accent: #0a6fb5; --accent-soft: #eaf2f9;
+    --a-col: #0a6fb5; --b-col: #0f7a52; --c-col: #b5560a;
+    color-scheme: light;
+  }
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  @page { size: A4; margin: 14mm 12mm; }
+  body { font-size: 11.5px; line-height: 1.6; padding: 0 !important; background: #fff; }
+  .wrap { max-width: none; margin: 0; }
+  header { padding-block: 0 18px; }
+  section { break-before: page; }
+  section:first-of-type { break-before: avoid; }
+  h1, h2, h3, h4 { break-after: avoid; }
+  figure, .fig-wrap, table, .note, .split { break-inside: avoid; }
+  figure svg, .fig-wrap svg { max-height: 215mm; }
+  pre { font-size: 9px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+  footer { break-before: page; }
+  a { color: var(--accent); text-decoration: none; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>MMA 的四个操作数</h1>
+  <p class="lede">
+    上一篇把异步搬运那条指令扒到了汇编，这一篇轮到
+    <code>__builtin_mxc_mma_16x16x16i8</code>。
+    汇编里它就是一条 <code>mma_16x16x16i8 rD, rA, rB, rC</code> ——
+    <strong>rD 和 rC 被编译器合成同一组寄存器</strong>（原地累加），
+    而那组寄存器就是<strong>四个普普通通的向量寄存器</strong>，
+    能清零、能从内存 load、能四个并存互不相干。
+    教程第一篇靠推理得出的「acc 是线程私有的」，现在有了指令级的证据。
+    顺带还查清了两件事：<strong>依赖链上的 MMA 背靠背发射、中间零等待</strong>，
+    以及 <strong>K=32 那条指令真实的操作数类型 —— 我之前猜错了</strong>。
+  </p>
+</header>
+
+<section>
+  <h2>00</h2>
+  <h3>结论速查</h3>
+  <div class="tw"><table>
+    <thead><tr><th>问题</th><th>汇编给的答案</th></tr></thead>
+    <tbody>
+      <tr><td>指令形态</td><td><code>mma_16x16x16i8 r4, r2, r1, r4</code> —— 目的、A、B、累加输入</td></tr>
+      <tr><td><code>acc</code> 住在哪</td><td><strong>4 个连续的普通向量寄存器</strong>（<code>i32x4</code>），线程私有，没有任何专用通道</td></tr>
+      <tr><td>怎么累加</td><td>编译器把 <code>rD</code> 和 <code>rC</code> 合成同一组 —— <strong>原地累加，零拷贝</strong></td></tr>
+      <tr><td>A / B 片段</td><td>各<strong>一个 32 位向量寄存器</strong>（4 个 int8 打包），取数就是一条 <code>ldg_b32</code></td></tr>
+      <tr><td>依赖链要不要等</td><td><strong>不要</strong>。四条累到同一个 acc 的 MMA 在汇编里紧挨着，中间无任何等待指令</td></tr>
+      <tr><td>什么时候要等</td><td>MMA 之后接<strong>普通指令</strong>读 acc 时要垫 <code>snop</code>：K=16 是 <code>snop 3</code>，K=32 是 <code>snop 5</code></td></tr>
+      <tr><td>K=32 的助记符</td><td><code>mma_i32_16x16x32i8</code>（多了 <code>i32</code> 中缀），片段 8 B，取数是 <code>ldg_b64</code></td></tr>
+      <tr><td>K=32 的操作数类型</td><td><strong><code>int2</code>，不是 <code>long</code></strong> —— 我之前的 C600 移植猜错了，已改并编过</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>01</h2>
+  <h3>一条指令，四个操作数</h3>
+  <p>最小的探针：读两个片段，乘加一次，写回。整个 kernel 的有效部分就四行：</p>
+<pre><code>ldg_b32  r2, s0, r1, 0x0      <span class="cmt">// A 片段：一个 32 位寄存器</span>
+ldg_b32  r1, s2, r1, 0x0      <span class="cmt">// B 片段</span>
+arrive   gvmcnt(0)
+mma_16x16x16i8 r4, r2, r1, r4 <span class="cmt">// ← 就这一条</span>
+snop 3
+stg_b128 s4, r0, 0x0, r4 devc</code></pre>
+  <figure>
+<svg viewBox="0 0 1000 360" role="img" aria-label="mma_16x16x16i8 的四个操作数：目的与累加输入是同一组 4 个向量寄存器，A 和 B 各是一个 32 位寄存器"
+     style="width:100%;max-width:1000px;height:auto;display:block;margin:0 auto"
+     fill="none" stroke="currentColor"><defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6"
+  markerHeight="6" orient="auto-start-reverse">
+  <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs><rect x="90" y="70" width="196" height="42" rx="3" fill="var(--a-col)" stroke="var(--a-col)" stroke-width="1.3" opacity="0.16"/>
+<text x="188" y="97" font-size="13" text-anchor="middle" font-weight="700" font-family="IBM Plex Mono, monospace">mma_16x16x16i8</text>
+<rect x="294" y="70" width="86" height="42" rx="3" fill="var(--b-col)" stroke="var(--b-col)" stroke-width="1.3" opacity="0.16"/>
+<text x="337" y="97" font-size="13" text-anchor="middle" font-weight="700" font-family="IBM Plex Mono, monospace">r4</text>
+<rect x="388" y="70" width="86" height="42" rx="3" fill="var(--c-col)" stroke="var(--c-col)" stroke-width="1.3" opacity="0.16"/>
+<text x="431" y="97" font-size="13" text-anchor="middle" font-weight="700" font-family="IBM Plex Mono, monospace">r2</text>
+<rect x="482" y="70" width="86" height="42" rx="3" fill="var(--c-col)" stroke="var(--c-col)" stroke-width="1.3" opacity="0.16"/>
+<text x="525" y="97" font-size="13" text-anchor="middle" font-weight="700" font-family="IBM Plex Mono, monospace">r1</text>
+<rect x="576" y="70" width="86" height="42" rx="3" fill="var(--b-col)" stroke="var(--b-col)" stroke-width="1.3" opacity="0.16"/>
+<text x="619" y="97" font-size="13" text-anchor="middle" font-weight="700" font-family="IBM Plex Mono, monospace">r4</text>
+<text x="90" y="50" font-size="11" text-anchor="start" fill="var(--fg-dim)" font-weight="600" font-family="IBM Plex Mono, monospace">真机汇编（xcore1000）：</text>
+<line x1="188" y1="112" x2="188" y2="121" stroke="var(--a-col)" stroke-width="1" stroke-dasharray="3 3"/>
+<text x="188" y="134" font-size="10.5" text-anchor="middle" fill="var(--a-col)" font-weight="600" font-family="IBM Plex Mono, monospace">操作码</text>
+<text x="188" y="147" font-size="9" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">16×16×16，int8 进 int32 出</text>
+<line x1="337" y1="112" x2="337" y2="161" stroke="var(--b-col)" stroke-width="1" stroke-dasharray="3 3"/>
+<text x="337" y="174" font-size="10.5" text-anchor="middle" fill="var(--b-col)" font-weight="600" font-family="IBM Plex Mono, monospace">目的 rD</text>
+<text x="337" y="187" font-size="9" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">4 个连续向量寄存器</text>
+<line x1="431" y1="112" x2="431" y2="121" stroke="var(--c-col)" stroke-width="1" stroke-dasharray="3 3"/>
+<text x="431" y="134" font-size="10.5" text-anchor="middle" fill="var(--c-col)" font-weight="600" font-family="IBM Plex Mono, monospace">A 片段</text>
+<text x="431" y="147" font-size="9" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">1 个 32 位寄存器 = 4 个 int8</text>
+<line x1="525" y1="112" x2="525" y2="161" stroke="var(--c-col)" stroke-width="1" stroke-dasharray="3 3"/>
+<text x="525" y="174" font-size="10.5" text-anchor="middle" fill="var(--c-col)" font-weight="600" font-family="IBM Plex Mono, monospace">B 片段</text>
+<text x="525" y="187" font-size="9" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">同上</text>
+<line x1="619" y1="112" x2="619" y2="121" stroke="var(--b-col)" stroke-width="1" stroke-dasharray="3 3"/>
+<text x="619" y="134" font-size="10.5" text-anchor="middle" fill="var(--b-col)" font-weight="600" font-family="IBM Plex Mono, monospace">累加输入 rC</text>
+<text x="619" y="147" font-size="9" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">和 rD 是同一个</text>
+<path d="M337 64 C 337 30, 619 30, 619 64" fill="none" stroke="var(--b-col)" stroke-width="1.6" marker-end="url(#ar)"/>
+<text x="478" y="28" font-size="10.5" text-anchor="middle" fill="var(--b-col)" font-weight="600" font-family="IBM Plex Mono, monospace">编译器把它们合成同一个寄存器组 —— 原地累加，不产生拷贝</text>
+<text x="90" y="224" font-size="11" text-anchor="start" font-weight="600" font-family="IBM Plex Mono, monospace">rD / rC 其实是 4 个连续寄存器：</text>
+<rect x="90" y="232" width="96" height="34" rx="3" fill="var(--b-col)" stroke="var(--b-col)" stroke-width="1.2" opacity="0.2"/>
+<text x="138" y="248" font-size="11" text-anchor="middle" font-weight="700" font-family="IBM Plex Mono, monospace">r4</text>
+<text x="138" y="261" font-size="8.5" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">acc[0]</text>
+<rect x="194" y="232" width="96" height="34" rx="3" fill="var(--b-col)" stroke="var(--b-col)" stroke-width="1.2" opacity="0.2"/>
+<text x="242" y="248" font-size="11" text-anchor="middle" font-weight="700" font-family="IBM Plex Mono, monospace">r5</text>
+<text x="242" y="261" font-size="8.5" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">acc[1]</text>
+<rect x="298" y="232" width="96" height="34" rx="3" fill="var(--b-col)" stroke="var(--b-col)" stroke-width="1.2" opacity="0.2"/>
+<text x="346" y="248" font-size="11" text-anchor="middle" font-weight="700" font-family="IBM Plex Mono, monospace">r6</text>
+<text x="346" y="261" font-size="8.5" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">acc[2]</text>
+<rect x="402" y="232" width="96" height="34" rx="3" fill="var(--b-col)" stroke="var(--b-col)" stroke-width="1.2" opacity="0.2"/>
+<text x="450" y="248" font-size="11" text-anchor="middle" font-weight="700" font-family="IBM Plex Mono, monospace">r7</text>
+<text x="450" y="261" font-size="8.5" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">acc[3]</text>
+<text x="520" y="253" font-size="10.5" text-anchor="start" font-family="IBM Plex Mono, monospace">= i32x4，一条 lane 私有的 4 个 int32</text>
+<text x="90" y="294" font-size="10" text-anchor="start" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">清零就是两条 shl_b64：  shl_b64 r4, 0, 0    shl_b64 r6, 0, 0</text>
+<text x="90" y="312" font-size="10" text-anchor="start" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">写回就是一条 stg_b128：  stg_b128 s4, r0, 0x0, r4 devc</text></svg>
+    <figcaption>四个操作数：目的 <code>rD</code>、A 片段、B 片段、累加输入 <code>rC</code>。<strong><code>rD</code> 和 <code>rC</code> 是同一个寄存器</strong> —— 编译器把它们合并了，所以累加是原地做的，不产生任何搬运。<code>rD</code> 写成 <code>r4</code> 其实指 <code>r4..r7</code> 四个连续寄存器：清零时是两条 <code>shl_b64</code>，写回时是一条 <code>stg_b128</code>（16 B），都对得上 <code>i32x4</code>。</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>02</h2>
+  <h3>acc 就是四个普通寄存器</h3>
+  <p>
+    教程第一篇讲过「<code>acc</code> 是线程私有的寄存器，指令是 wave 级的集体操作」，
+    但那是从片段映射推出来的。现在可以直接验：把累加器换四种用法，看汇编认不认。
+  </p>
+  <figure>
+<svg viewBox="0 0 1000 330" role="img" aria-label="四种累加器用法的汇编：清零、从内存读、原地累加、四个独立累加器，全部是普通向量寄存器"
+     style="width:100%;max-width:1000px;height:auto;display:block;margin:0 auto"
+     fill="none" stroke="currentColor"><defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6"
+  markerHeight="6" orient="auto-start-reverse">
+  <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs><text x="134" y="80" font-size="11" text-anchor="end" font-weight="600" font-family="IBM Plex Mono, monospace">清零起步</text>
+<rect x="148" y="56" width="330" height="54" rx="3" fill="var(--surface-2)" stroke="var(--line)" stroke-width="0.8"/>
+<text x="160" y="74" font-size="9.5" text-anchor="start" fill="var(--fg-dim)" font-weight="400" font-family="IBM Plex Mono, monospace">shl_b64 r10, 0, 0</text>
+<text x="160" y="89" font-size="9.5" text-anchor="start" fill="var(--fg-dim)" font-weight="400" font-family="IBM Plex Mono, monospace">shl_b64 r12, 0, 0</text>
+<text x="160" y="104" font-size="9.5" text-anchor="start" font-weight="600" font-family="IBM Plex Mono, monospace">mma_16x16x16i8 r10, r2, r6, r10</text>
+<text x="494" y="86" font-size="10.5" text-anchor="start" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">acc 用两条普通的 64 位清零指令初始化</text>
+<text x="134" y="146" font-size="11" text-anchor="end" font-weight="600" font-family="IBM Plex Mono, monospace">从内存读进来</text>
+<rect x="148" y="122" width="330" height="54" rx="3" fill="var(--surface-2)" stroke="var(--line)" stroke-width="0.8"/>
+<text x="160" y="140" font-size="9.5" text-anchor="start" fill="var(--fg-dim)" font-weight="400" font-family="IBM Plex Mono, monospace">ldg_b128 r4, s4, r1, 0x0</text>
+<text x="160" y="155" font-size="9.5" text-anchor="start" font-weight="600" font-family="IBM Plex Mono, monospace">mma_16x16x16i8 r4, r2, r0, r4</text>
+<text x="494" y="152" font-size="10.5" text-anchor="start" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">直接 load 进去就能当累加输入 —— 没有任何专用通道</text>
+<text x="134" y="212" font-size="11" text-anchor="end" font-weight="600" font-family="IBM Plex Mono, monospace">四条累到同一个</text>
+<rect x="148" y="188" width="330" height="54" rx="3" fill="var(--surface-2)" stroke="var(--line)" stroke-width="0.8"/>
+<text x="160" y="206" font-size="9.5" text-anchor="start" font-weight="600" font-family="IBM Plex Mono, monospace">mma_16x16x16i8 r10, r2, r6, r10</text>
+<text x="160" y="221" font-size="9.5" text-anchor="start" font-weight="600" font-family="IBM Plex Mono, monospace">mma_16x16x16i8 r10, r3, r7, r10</text>
+<text x="160" y="236" font-size="9.5" text-anchor="start" fill="var(--fg-dim)" font-weight="400" font-family="IBM Plex Mono, monospace">… 共 4 条，rD 和 rC 始终是 r10</text>
+<text x="494" y="218" font-size="10.5" text-anchor="start" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">原地累加</text>
+<text x="134" y="278" font-size="11" text-anchor="end" font-weight="600" font-family="IBM Plex Mono, monospace">四个独立 acc</text>
+<rect x="148" y="254" width="330" height="54" rx="3" fill="var(--surface-2)" stroke="var(--line)" stroke-width="0.8"/>
+<text x="160" y="272" font-size="9.5" text-anchor="start" font-weight="600" font-family="IBM Plex Mono, monospace">mma_16x16x16i8 r14, r2, r6, r10</text>
+<text x="160" y="287" font-size="9.5" text-anchor="start" font-weight="600" font-family="IBM Plex Mono, monospace">mma_16x16x16i8 r18, r3, r7, r10</text>
+<text x="160" y="302" font-size="9.5" text-anchor="start" font-weight="600" font-family="IBM Plex Mono, monospace">mma_16x16x16i8 r22, r4, r8, r10</text>
+<text x="494" y="284" font-size="10.5" text-anchor="start" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">rD 各不相同 —— 四个累加器就是四组寄存器，互不相干</text>
+<rect x="134" y="328" width="880" height="34" rx="3" fill="var(--b-col)" stroke="var(--b-col)" stroke-width="1.2" opacity="0.14"/>
+<text x="574" y="350" font-size="11.5" text-anchor="middle" fill="var(--b-col)" font-weight="700" font-family="IBM Plex Mono, monospace">四种写法都只用普通向量寄存器 —— acc 是线程私有的，而且没有任何特殊性</text></svg>
+    <figcaption>清零用的是普通的 <code>shl_b64</code>；从内存读进来用的是普通的 <code>ldg_b128</code>，读完直接当累加输入；四个独立累加器就是四组不同的 <code>rD</code>。<strong>没有任何专用指令、专用寄存器堆或者特殊搬运</strong> —— 累加器就是你手里那四个向量寄存器，想怎么用就怎么用。</figcaption>
+  </figure>
+  <div class="note"><p>
+    <strong>这也解释了累加器为什么这么贵。</strong>
+    一个 <code>16×16</code> 的输出块要 4 个寄存器，
+    <code>mma_dbuf_256.cu</code> 里每个 wave 扛 <code>4×4</code> 个输出块 ——
+    就是 <strong>64 个向量寄存器只用来放累加器</strong>。
+    前一篇的占用率那张表里，寄存器压力就是这么来的。
+  </p></div>
+</section>
+
+<section>
+  <h2>03</h2>
+  <h3>依赖链背靠背，只有链尾要等</h3>
+  <p>
+    四条 MMA 全累到同一个 <code>acc</code>，每一条都依赖上一条的结果。
+    直觉上这应该是最糟的情形，但汇编里它们紧挨着：
+  </p>
+<pre><code>mma_16x16x16i8 r10, r2, r6, r10
+mma_16x16x16i8 r10, r3, r7, r10
+mma_16x16x16i8 r10, r4, r8, r10
+mma_16x16x16i8 r10, r5, r9, r10
+snop 3                            <span class="cmt">// ← 只有这里垫了</span>
+stg_b128 s4, r0, 0x0, r10 devc</code></pre>
+  <figure>
+<svg viewBox="0 0 1000 300" role="img" aria-label="连续四条依赖同一累加器的 MMA 背靠背发射，只有后面接普通指令时才需要垫 snop"
+     style="width:100%;max-width:1000px;height:auto;display:block;margin:0 auto"
+     fill="none" stroke="currentColor"><defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6"
+  markerHeight="6" orient="auto-start-reverse">
+  <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs><rect x="120" y="76" width="150" height="40" rx="3" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.8"/>
+<text x="195" y="101" font-size="12" text-anchor="middle" fill="var(--surface)" font-weight="700" font-family="IBM Plex Mono, monospace">mma #1</text>
+<text x="273" y="66" font-size="9" text-anchor="middle" fill="var(--b-col)" font-family="IBM Plex Mono, monospace">无间隔</text>
+<rect x="276" y="76" width="150" height="40" rx="3" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.8"/>
+<text x="351" y="101" font-size="12" text-anchor="middle" fill="var(--surface)" font-weight="700" font-family="IBM Plex Mono, monospace">mma #2</text>
+<text x="429" y="66" font-size="9" text-anchor="middle" fill="var(--b-col)" font-family="IBM Plex Mono, monospace">无间隔</text>
+<rect x="432" y="76" width="150" height="40" rx="3" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.8"/>
+<text x="507" y="101" font-size="12" text-anchor="middle" fill="var(--surface)" font-weight="700" font-family="IBM Plex Mono, monospace">mma #3</text>
+<text x="585" y="66" font-size="9" text-anchor="middle" fill="var(--b-col)" font-family="IBM Plex Mono, monospace">无间隔</text>
+<rect x="588" y="76" width="150" height="40" rx="3" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.8"/>
+<text x="663" y="101" font-size="12" text-anchor="middle" fill="var(--surface)" font-weight="700" font-family="IBM Plex Mono, monospace">mma #4</text>
+<text x="106" y="101" font-size="10.5" text-anchor="end" font-weight="600" font-family="IBM Plex Mono, monospace">四条累到同一个 acc</text>
+<text x="120" y="50" font-size="10.5" text-anchor="start" fill="var(--b-col)" font-family="IBM Plex Mono, monospace">每一条都要等上一条的 acc —— 但汇编里它们紧挨着，中间一条等待指令都没有</text>
+<rect x="744" y="76" width="96" height="40" rx="3" fill="var(--c-col)" stroke="var(--c-col)" stroke-width="1.4" opacity="0.25"/>
+<text x="792" y="101" font-size="11.5" text-anchor="middle" fill="var(--c-col)" font-weight="700" font-family="IBM Plex Mono, monospace">snop 3</text>
+<rect x="846" y="76" width="120" height="40" rx="3" fill="none" stroke="var(--fg-dim)" stroke-width="1.2"/>
+<text x="906" y="101" font-size="11" text-anchor="middle" font-weight="600" font-family="IBM Plex Mono, monospace">stg_b128</text>
+<text x="792" y="136" font-size="9.5" text-anchor="middle" fill="var(--c-col)" font-family="IBM Plex Mono, monospace">普通指令要读 acc</text>
+<text x="792" y="150" font-size="9.5" text-anchor="middle" fill="var(--c-col)" font-family="IBM Plex Mono, monospace">之前得垫 3 拍</text>
+<rect x="106" y="190" width="900" height="56" rx="3" fill="var(--surface-2)" stroke="var(--line)" stroke-width="0.8"/>
+<text x="120" y="212" font-size="11" text-anchor="start" fill="var(--b-col)" font-weight="600" font-family="IBM Plex Mono, monospace">MMA → MMA：背靠背，硬件自己处理累加器的读写相关</text>
+<text x="120" y="232" font-size="11" text-anchor="start" fill="var(--c-col)" font-weight="600" font-family="IBM Plex Mono, monospace">MMA → 普通指令：要垫 snop（K=16 是 3 拍，K=32 是 5 拍）</text>
+<text x="106" y="286" font-size="10.5" text-anchor="start" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">所以把 MMA 排成长链是划算的：链内零开销，只有链尾那一次要付延迟。</text></svg>
+    <figcaption>MMA 之间<strong>一条等待指令都没有</strong> —— 累加器的读写相关由硬件自己处理。只有当<strong>普通指令</strong>（这里是写回）要读累加器时，编译器才垫 <code>snop 3</code>。所以把 MMA 排成长链是划算的：链内零开销，整条链只在最后付一次延迟。<code>mma_dbuf_256.cu</code> 的内层循环正好就是这个形状。</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>04</h2>
+  <h3>K=16 和 K=32 并排</h3>
+  <p>
+    C500 是 xcore1000，没有 K=32 的 int8 MMA。但<strong>编译器有</strong> ——
+    用 <code>--offload-arch=xcore1500</code> 就能把它编出来看，
+    虽然这台机器跑不了。两条指令并排：
+  </p>
+  <figure>
+<svg viewBox="0 0 1000 330" role="img" aria-label="K=16 与 K=32 两条 MMA 指令的并排对照：助记符、片段宽度、取数指令、结果延迟和每窗条数"
+     style="width:100%;max-width:1000px;height:auto;display:block;margin:0 auto"
+     fill="none" stroke="currentColor"><defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6"
+  markerHeight="6" orient="auto-start-reverse">
+  <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs><text x="260" y="34" font-size="12.5" text-anchor="middle" fill="var(--a-col)" font-weight="700" font-family="IBM Plex Mono, monospace">xcore1000 (C500)</text>
+<rect x="70" y="48" width="380" height="42" rx="3" fill="var(--a-col)" stroke="var(--a-col)" stroke-width="1.3" opacity="0.14"/>
+<text x="260" y="74" font-size="12" text-anchor="middle" font-weight="700" font-family="IBM Plex Mono, monospace">mma_16x16x16i8</text>
+<text x="78" y="124" font-size="10" text-anchor="start" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">片段宽度</text>
+<rect x="166" y="108" width="276" height="26" rx="3" fill="none" stroke="var(--line)" stroke-width="0.9"/>
+<text x="304" y="125" font-size="10.5" text-anchor="middle" font-weight="600" font-family="IBM Plex Mono, monospace">4 B = 1 个寄存器</text>
+<text x="78" y="164" font-size="10" text-anchor="start" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">取片段</text>
+<rect x="166" y="148" width="276" height="26" rx="3" fill="none" stroke="var(--line)" stroke-width="0.9"/>
+<text x="304" y="165" font-size="10.5" text-anchor="middle" font-weight="600" font-family="IBM Plex Mono, monospace">ldg_b32  r2</text>
+<text x="78" y="204" font-size="10" text-anchor="start" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">结果延迟</text>
+<rect x="166" y="188" width="276" height="26" rx="3" fill="none" stroke="var(--line)" stroke-width="0.9"/>
+<text x="304" y="205" font-size="10.5" text-anchor="middle" font-weight="600" font-family="IBM Plex Mono, monospace">snop 3</text>
+<text x="78" y="244" font-size="10" text-anchor="start" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">每窗条数</text>
+<rect x="166" y="228" width="276" height="26" rx="3" fill="none" stroke="var(--line)" stroke-width="0.9"/>
+<text x="304" y="245" font-size="10.5" text-anchor="middle" font-weight="600" font-family="IBM Plex Mono, monospace">256 条 / 窗 / wave</text>
+<text x="730" y="34" font-size="12.5" text-anchor="middle" fill="var(--b-col)" font-weight="700" font-family="IBM Plex Mono, monospace">xcore1500 (C600)</text>
+<rect x="540" y="48" width="380" height="42" rx="3" fill="var(--b-col)" stroke="var(--b-col)" stroke-width="1.3" opacity="0.14"/>
+<text x="730" y="74" font-size="12" text-anchor="middle" font-weight="700" font-family="IBM Plex Mono, monospace">mma_i32_16x16x32i8</text>
+<text x="548" y="124" font-size="10" text-anchor="start" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">片段宽度</text>
+<rect x="636" y="108" width="276" height="26" rx="3" fill="none" stroke="var(--line)" stroke-width="0.9"/>
+<text x="774" y="125" font-size="10.5" text-anchor="middle" font-weight="600" font-family="IBM Plex Mono, monospace">8 B = 2 个寄存器（int2）</text>
+<text x="548" y="164" font-size="10" text-anchor="start" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">取片段</text>
+<rect x="636" y="148" width="276" height="26" rx="3" fill="none" stroke="var(--line)" stroke-width="0.9"/>
+<text x="774" y="165" font-size="10.5" text-anchor="middle" font-weight="600" font-family="IBM Plex Mono, monospace">ldg_b64  r2</text>
+<text x="548" y="204" font-size="10" text-anchor="start" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">结果延迟</text>
+<rect x="636" y="188" width="276" height="26" rx="3" fill="none" stroke="var(--line)" stroke-width="0.9"/>
+<text x="774" y="205" font-size="10.5" text-anchor="middle" font-weight="600" font-family="IBM Plex Mono, monospace">snop 5</text>
+<text x="548" y="244" font-size="10" text-anchor="start" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">每窗条数</text>
+<rect x="636" y="228" width="276" height="26" rx="3" fill="none" stroke="var(--line)" stroke-width="0.9"/>
+<text x="774" y="245" font-size="10.5" text-anchor="middle" font-weight="600" font-family="IBM Plex Mono, monospace">128 条 / 窗 / wave</text>
+<line x1="500" y1="30" x2="500" y2="272" stroke="var(--line)" stroke-width="1" stroke-dasharray="4 4"/>
+<rect x="70" y="282" width="850" height="34" rx="3" fill="var(--b-col)" stroke="var(--b-col)" stroke-width="1.2" opacity="0.14"/>
+<text x="495" y="304" font-size="11" text-anchor="middle" fill="var(--b-col)" font-weight="700" font-family="IBM Plex Mono, monospace">同样的 16B LDS 读，K=16 切 4 份喂 4 条，K=32 切 2 份喂 2 条 —— MMA 条数正好砍半</text></svg>
+    <figcaption>两件事值得注意。一是<strong>助记符不一样</strong>：K=32 是 <code>mma_i32_16x16x32i8</code>，多了个 <code>i32</code> 中缀（按这个取名法，K=16 那条省略了它）。二是<strong>片段宽度翻倍</strong>：取数从 <code>ldg_b32</code> 变成 <code>ldg_b64</code>，一条 lane 交进去 8 B 而不是 4 B —— 这正是前一篇推的「同样的 16 B LDS 读，K=16 切 4 份、K=32 切 2 份」，现在在汇编上对上了。结果延迟也从 3 拍变成 5 拍。</figcaption>
+  </figure>
+  <p>
+    把整个 C600 kernel 编给 xcore1500，里面是 <strong>512 条
+    <code>mma_i32_16x16x32i8</code></strong> —— 4 个模板实例 × 128 条，
+    而 K=16 的同一份源码是 4 × 256 = 1024 条。<strong>正好砍半，和预期一致。</strong>
+    异步搬运那条 <code>ldg_b128 … ret0_en bsm pred_reg:s12</code> 也原样还在。
+  </p>
+</section>
+
+<section>
+  <h2>05</h2>
+  <h3>我把 K=32 的签名猜错了</h3>
+  <p>
+    之前做 C600 移植时拿不到真机，<code>mma_16x16x32i8</code> 的操作数类型只能猜。
+    我按「K=16 用一个 32 位打包，那 K=32 就是一个 64 位打包」推成了 <code>long</code>。
+    现在能编了，编译器一句话就否了：
+  </p>
+  <figure>
+<svg viewBox="0 0 1000 300" role="img" aria-label="把操作数写成 long 会被编译器当场拒绝，改成 int2 后整份文件编给 xcore1500 通过"
+     style="width:100%;max-width:1000px;height:auto;display:block;margin:0 auto"
+     fill="none" stroke="currentColor"><defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6"
+  markerHeight="6" orient="auto-start-reverse">
+  <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs><text x="270" y="36" font-size="12" text-anchor="middle" fill="var(--c-col)" font-weight="700" font-family="IBM Plex Mono, monospace">我第一版写的：long</text>
+<rect x="60" y="50" width="420" height="86" rx="3" fill="var(--c-col)" stroke="var(--c-col)" stroke-width="1.3" opacity="0.12"/>
+<text x="74" y="74" font-size="9.5" text-anchor="start" fill="var(--c-col)" font-family="IBM Plex Mono, monospace">error: cannot initialize a parameter of type</text>
+<text x="74" y="94" font-size="9.5" text-anchor="start" fill="var(--c-col)" font-family="IBM Plex Mono, monospace">  '__attribute__((__vector_size__(2 * sizeof(int)))) int'</text>
+<text x="74" y="114" font-size="9.5" text-anchor="start" fill="var(--c-col)" font-family="IBM Plex Mono, monospace">  with an lvalue of type 'const long'</text>
+<text x="730" y="36" font-size="12" text-anchor="middle" fill="var(--b-col)" font-weight="700" font-family="IBM Plex Mono, monospace">改成 int2</text>
+<rect x="520" y="50" width="420" height="86" rx="3" fill="var(--b-col)" stroke="var(--b-col)" stroke-width="1.3" opacity="0.12"/>
+<text x="534" y="74" font-size="9.5" text-anchor="start" fill="var(--b-col)" font-family="IBM Plex Mono, monospace">编译通过（--offload-arch=xcore1500）</text>
+<text x="534" y="94" font-size="9.5" text-anchor="start" fill="var(--b-col)" font-family="IBM Plex Mono, monospace"></text>
+<text x="534" y="114" font-size="9.5" text-anchor="start" fill="var(--b-col)" font-family="IBM Plex Mono, monospace">生成 512 条 mma_i32_16x16x32i8</text>
+<text x="60" y="162" font-size="11" text-anchor="start" font-weight="700" font-family="IBM Plex Mono, monospace">为什么没出大事：</text>
+<rect x="60" y="184" width="24" height="24" rx="4" fill="var(--b-col)" stroke="none" stroke-width="1" opacity="0.18"/>
+<text x="72" y="201" font-size="11" text-anchor="middle" fill="var(--b-col)" font-weight="700" font-family="IBM Plex Mono, monospace">1</text>
+<text x="96" y="201" font-size="10.5" text-anchor="start" font-family="IBM Plex Mono, monospace">当初给这个不确定的地方留了一个编译期开关，错的那条默认路被编译器当场拒掉 —— 不会悄悄算错</text>
+<rect x="60" y="216" width="24" height="24" rx="4" fill="var(--b-col)" stroke="none" stroke-width="1" opacity="0.18"/>
+<text x="72" y="233" font-size="11" text-anchor="middle" fill="var(--b-col)" font-weight="700" font-family="IBM Plex Mono, monospace">2</text>
+<text x="96" y="233" font-size="10.5" text-anchor="start" font-family="IBM Plex Mono, monospace">现在默认已改成 int2；整份文件编给 xcore1500 通过，K=16 那条路径在 C500 上四个组合全 PASS</text>
+<rect x="60" y="248" width="24" height="24" rx="4" fill="var(--b-col)" stroke="none" stroke-width="1" opacity="0.18"/>
+<text x="72" y="265" font-size="11" text-anchor="middle" fill="var(--b-col)" font-weight="700" font-family="IBM Plex Mono, monospace">3</text>
+<text x="96" y="265" font-size="10.5" text-anchor="start" font-family="IBM Plex Mono, monospace">仓库里另一份独立的 C600 移植（别人推的）用的也是 int2 —— 两边对上了</text></svg>
+    <figcaption>错的那条默认路<strong>被编译器当场拒掉</strong>，不是悄悄算错 —— 这正是当初在不确定的地方留一个编译期开关的价值。现在默认已经改成 <code>int2</code>：整份文件编给 xcore1500 通过，而 <code>-DMX_ARCH=500</code> 的 K=16 路径在 C500 上四个组合全 PASS（<code>0/65536</code> 不符）。仓库里另一份独立做的 C600 移植用的也是 <code>int2</code>，两边对上了。</figcaption>
+  </figure>
+  <div class="note"><p>
+    <strong>这份移植现在的状态：</strong>
+    两条路径都编得过（xcore1500 / xcore1000），K=16 那条真机跑过且数值对，
+    K=32 那条<strong>仍然没上过 C600</strong> ——
+    片段的 lane→元素映射、累加器布局这些还是推的，只是现在连签名都确定了而已。
+  </p></div>
+</section>
+
+<section>
+  <h2>06</h2>
+  <h3>两条路径各测到了哪一步</h3>
+  <p>
+    同一份源码，<code>-DMX_ARCH=500</code> 走 K=16、<code>-DMX_ARCH=600</code> 走 K=32。
+    两边都测，但<strong>能测到的深度不一样</strong>：
+  </p>
+  <figure>
+<svg viewBox="0 0 1000 456" role="img" aria-label="K=16 与 K=32 两条路径各测到哪一步：K=16 到真机数值，K=32 止于装载器"
+     style="width:100%;max-width:1000px;height:auto;display:block;margin:0 auto"
+     fill="none" stroke="currentColor"><defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6"
+  markerHeight="6" orient="auto-start-reverse">
+  <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs><text x="425" y="60" font-size="12" text-anchor="middle" fill="var(--b-col)" font-weight="700" font-family="IBM Plex Mono, monospace">K=16  xcore1000</text>
+<text x="425" y="75" font-size="9.5" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">这台 C500 就是</text>
+<text x="769" y="60" font-size="12" text-anchor="middle" fill="var(--c-col)" font-weight="700" font-family="IBM Plex Mono, monospace">K=32  xcore1500</text>
+<text x="769" y="75" font-size="9.5" text-anchor="middle" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">手上没有这颗芯片</text>
+<text x="244" y="110" font-size="10.5" text-anchor="end" font-weight="600" font-family="IBM Plex Mono, monospace">编译</text>
+<rect x="258" y="90" width="334" height="30" rx="3" fill="var(--b-col)" stroke="var(--b-col)" stroke-width="1.1" opacity="0.16"/>
+<text x="274" y="110" font-size="12" text-anchor="start" fill="var(--b-col)" font-weight="700" font-family="IBM Plex Mono, monospace">✓</text>
+<text x="435" y="110" font-size="10" text-anchor="middle" font-family="IBM Plex Mono, monospace">通过</text>
+<rect x="602" y="90" width="334" height="30" rx="3" fill="var(--b-col)" stroke="var(--b-col)" stroke-width="1.1" opacity="0.16"/>
+<text x="618" y="110" font-size="12" text-anchor="start" fill="var(--b-col)" font-weight="700" font-family="IBM Plex Mono, monospace">✓</text>
+<text x="779" y="110" font-size="10" text-anchor="middle" font-family="IBM Plex Mono, monospace">通过</text>
+<text x="244" y="150" font-size="10.5" text-anchor="end" font-weight="600" font-family="IBM Plex Mono, monospace">汇编里的指令形态</text>
+<rect x="258" y="130" width="334" height="30" rx="3" fill="var(--b-col)" stroke="var(--b-col)" stroke-width="1.1" opacity="0.16"/>
+<text x="274" y="150" font-size="12" text-anchor="start" fill="var(--b-col)" font-weight="700" font-family="IBM Plex Mono, monospace">✓</text>
+<text x="435" y="150" font-size="10" text-anchor="middle" font-family="IBM Plex Mono, monospace">mma_16x16x16i8</text>
+<rect x="602" y="130" width="334" height="30" rx="3" fill="var(--b-col)" stroke="var(--b-col)" stroke-width="1.1" opacity="0.16"/>
+<text x="618" y="150" font-size="12" text-anchor="start" fill="var(--b-col)" font-weight="700" font-family="IBM Plex Mono, monospace">✓</text>
+<text x="779" y="150" font-size="10" text-anchor="middle" font-family="IBM Plex Mono, monospace">mma_i32_16x16x32i8</text>
+<text x="244" y="190" font-size="10.5" text-anchor="end" font-weight="600" font-family="IBM Plex Mono, monospace">指令条数</text>
+<rect x="258" y="170" width="334" height="30" rx="3" fill="var(--b-col)" stroke="var(--b-col)" stroke-width="1.1" opacity="0.16"/>
+<text x="274" y="190" font-size="12" text-anchor="start" fill="var(--b-col)" font-weight="700" font-family="IBM Plex Mono, monospace">✓</text>
+<text x="435" y="190" font-size="10" text-anchor="middle" font-family="IBM Plex Mono, monospace">1024 条 / 4 实例</text>
+<rect x="602" y="170" width="334" height="30" rx="3" fill="var(--b-col)" stroke="var(--b-col)" stroke-width="1.1" opacity="0.16"/>
+<text x="618" y="190" font-size="12" text-anchor="start" fill="var(--b-col)" font-weight="700" font-family="IBM Plex Mono, monospace">✓</text>
+<text x="779" y="190" font-size="10" text-anchor="middle" font-family="IBM Plex Mono, monospace">512 条 / 4 实例</text>
+<text x="244" y="230" font-size="10.5" text-anchor="end" font-weight="600" font-family="IBM Plex Mono, monospace">host 自检（banks）</text>
+<rect x="258" y="210" width="334" height="30" rx="3" fill="var(--b-col)" stroke="var(--b-col)" stroke-width="1.1" opacity="0.16"/>
+<text x="274" y="230" font-size="12" text-anchor="start" fill="var(--b-col)" font-weight="700" font-family="IBM Plex Mono, monospace">✓</text>
+<text x="435" y="230" font-size="10" text-anchor="middle" font-family="IBM Plex Mono, monospace">布局 / 足迹 / k 覆盖全过</text>
+<rect x="602" y="210" width="334" height="30" rx="3" fill="var(--b-col)" stroke="var(--b-col)" stroke-width="1.1" opacity="0.16"/>
+<text x="618" y="230" font-size="12" text-anchor="start" fill="var(--b-col)" font-weight="700" font-family="IBM Plex Mono, monospace">✓</text>
+<text x="779" y="230" font-size="10" text-anchor="middle" font-family="IBM Plex Mono, monospace">同左，全过</text>
+<text x="244" y="270" font-size="10.5" text-anchor="end" font-weight="600" font-family="IBM Plex Mono, monospace">真机正确性 256³</text>
+<rect x="258" y="250" width="334" height="30" rx="3" fill="var(--b-col)" stroke="var(--b-col)" stroke-width="1.1" opacity="0.16"/>
+<text x="274" y="270" font-size="12" text-anchor="start" fill="var(--b-col)" font-weight="700" font-family="IBM Plex Mono, monospace">✓</text>
+<text x="435" y="270" font-size="10" text-anchor="middle" font-family="IBM Plex Mono, monospace">四组合 0/65536</text>
+<rect x="602" y="250" width="334" height="30" rx="3" fill="var(--c-col)" stroke="var(--c-col)" stroke-width="1.1" opacity="0.1" stroke-dasharray="4 3"/>
+<text x="618" y="270" font-size="12" text-anchor="start" fill="var(--c-col)" font-weight="700" font-family="IBM Plex Mono, monospace">✗</text>
+<text x="779" y="270" font-size="10" text-anchor="middle" fill="var(--c-col)" font-family="IBM Plex Mono, monospace">装不下这个二进制</text>
+<text x="244" y="310" font-size="10.5" text-anchor="end" font-weight="600" font-family="IBM Plex Mono, monospace">真机正确性 1024³</text>
+<rect x="258" y="290" width="334" height="30" rx="3" fill="var(--b-col)" stroke="var(--b-col)" stroke-width="1.1" opacity="0.16"/>
+<text x="274" y="310" font-size="12" text-anchor="start" fill="var(--b-col)" font-weight="700" font-family="IBM Plex Mono, monospace">✓</text>
+<text x="435" y="310" font-size="10" text-anchor="middle" font-family="IBM Plex Mono, monospace">四组合 0/1048576</text>
+<rect x="602" y="290" width="334" height="30" rx="3" fill="var(--c-col)" stroke="var(--c-col)" stroke-width="1.1" opacity="0.1" stroke-dasharray="4 3"/>
+<text x="618" y="310" font-size="12" text-anchor="start" fill="var(--c-col)" font-weight="700" font-family="IBM Plex Mono, monospace">✗</text>
+<text x="779" y="310" font-size="10" text-anchor="middle" fill="var(--c-col)" font-family="IBM Plex Mono, monospace">同上</text>
+<text x="244" y="350" font-size="10.5" text-anchor="end" font-weight="600" font-family="IBM Plex Mono, monospace">真机性能</text>
+<rect x="258" y="330" width="334" height="30" rx="3" fill="var(--b-col)" stroke="var(--b-col)" stroke-width="1.1" opacity="0.16"/>
+<text x="274" y="350" font-size="12" text-anchor="start" fill="var(--b-col)" font-weight="700" font-family="IBM Plex Mono, monospace">✓</text>
+<text x="435" y="350" font-size="10" text-anchor="middle" font-family="IBM Plex Mono, monospace">前几篇测过</text>
+<rect x="602" y="330" width="334" height="30" rx="3" fill="var(--c-col)" stroke="var(--c-col)" stroke-width="1.1" opacity="0.1" stroke-dasharray="4 3"/>
+<text x="618" y="350" font-size="12" text-anchor="start" fill="var(--c-col)" font-weight="700" font-family="IBM Plex Mono, monospace">✗</text>
+<text x="779" y="350" font-size="10" text-anchor="middle" fill="var(--c-col)" font-family="IBM Plex Mono, monospace">同上</text>
+<rect x="244" y="376" width="920" height="46" rx="3" fill="var(--c-col)" stroke="var(--c-col)" stroke-width="1.2" opacity="0.12"/>
+<text x="256" y="395" font-size="10.5" text-anchor="start" fill="var(--c-col)" font-weight="600" font-family="IBM Plex Mono, monospace">拦住的不是指令，是装载器：ErrorNoBinaryForGpu: Couldn’t find xcore1000 binary</text>
+<text x="256" y="412" font-size="10.5" text-anchor="start" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">—— 胖二进制里只有 xcore1500 的那份，这颗芯片认不了，连发射都没发射。</text>
+<text x="244" y="446" font-size="10" text-anchor="start" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">banks 子命令全是 host 代码、不启动 kernel，所以它在 K=32 的二进制上照样能跑 —— 这是能隔着硬件验到的最深一层。</text></svg>
+    <figcaption>K=16 那一列一路测到真机数值；K=32 止步于<strong>装载器</strong> —— 胖二进制里只有 xcore1500 的那份，这颗 xcore1000 认不了，连发射都没发射（<code>ErrorNoBinaryForGpu</code>）。但<code>banks</code> 子命令全是 host 代码、不启动 kernel，所以它在 K=32 的二进制上照样跑，而且跑的是<strong>真实编出来的 K=32 常量</strong>：片段 8 B、一条 16 B 读供 2 条 MMA、每窗 128 条 MMA、读:MMA = 1:4 —— 和汇编里数出来的 512 条对得上。</figcaption>
+  </figure>
+  <p>两边的 host 自检输出逐字相同（这正是应该的 —— 布局和 k 覆盖跟 MMA 的 K 无关）：</p>
+<pre><code>=== 自检 ===
+  原始 写进去的块 &lt;-&gt; 读出来的块：全部对上
+  XOR  写进去的块 &lt;-&gt; 读出来的块：全部对上
+  原始 全局侧一行内的足迹：仍是那一段连续字节，只换了取数的人
+  XOR  全局侧一行内的足迹：仍是那一段连续字节，只换了取数的人
+  (c, w) 两层循环铺出的 256 个 k：不重不漏</code></pre>
+  <div class="note"><p>
+    <strong>所以 K=32 的状态要说准确：</strong>
+    签名已核实、整份文件编得过、指令形态和条数都对、下标算术自检全过 ——
+    但<strong>片段的 lane→元素映射和累加器布局仍然是推的</strong>。
+    这两件事只有真卡能判，<code>banks</code> 验不到。
+  </p></div>
+</section>
+
+<section>
+  <h2>07</h2>
+  <h3>顺带：编译器自己也在用部分等待</h3>
+  <p>四条 K=32 的 MMA 加上取数，编译器是这么排的：</p>
+<pre><code>ldg_b128 r2,  s0, r1, 0x0
+ldg_b128 r6,  s2, r1, 0x0
+ldg_b128 r10, s0, r1, 0x10
+ldg_b128 r14, s2, r1, 0x10
+arrive gvmcnt(2)                   <span class="cmt">// ← 只等掉两条，另两条还在飞</span>
+mma_i32_16x16x32i8 r18, r2, r6, r18
+mma_i32_16x16x32i8 r18, r4, r8, r18
+arrive gvmcnt(0)
+mma_i32_16x16x32i8 r18, r10, r14, r18
+mma_i32_16x16x32i8 r18, r12, r16, r18</code></pre>
+  <figure>
+<svg viewBox="0 0 1000 250" role="img" aria-label="编译器自己排出的 gvmcnt(2) 再 gvmcnt(0) 的部分等待，用来让取数和 MMA 重叠"
+     style="width:100%;max-width:1000px;height:auto;display:block;margin:0 auto"
+     fill="none" stroke="currentColor"><defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6"
+  markerHeight="6" orient="auto-start-reverse">
+  <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs><rect x="150" y="76" width="150" height="34" rx="3" fill="var(--c-col)" stroke="none" stroke-width="1" opacity="0.78"/>
+<text x="225" y="98" font-size="10.5" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">ldg_b128 ×4</text>
+<rect x="306" y="76" width="170" height="34" rx="3" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.78"/>
+<text x="391" y="98" font-size="10.5" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">arrive gvmcnt(2)</text>
+<rect x="482" y="76" width="110" height="34" rx="3" fill="var(--b-col)" stroke="none" stroke-width="1" opacity="0.78"/>
+<text x="537" y="98" font-size="10.5" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">mma ×2</text>
+<rect x="598" y="76" width="170" height="34" rx="3" fill="var(--a-col)" stroke="none" stroke-width="1" opacity="0.78"/>
+<text x="683" y="98" font-size="10.5" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">arrive gvmcnt(0)</text>
+<rect x="774" y="76" width="110" height="34" rx="3" fill="var(--b-col)" stroke="none" stroke-width="1" opacity="0.78"/>
+<text x="829" y="98" font-size="10.5" text-anchor="middle" fill="var(--surface)" font-weight="600" font-family="IBM Plex Mono, monospace">mma ×2</text>
+<text x="136" y="98" font-size="11" text-anchor="end" font-weight="600" font-family="IBM Plex Mono, monospace">编译器排出来的</text>
+<text x="150" y="60" font-size="10.5" text-anchor="start" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">四条取数发出去之后，先只等掉两条，拿这两条的数据开算，剩下两条还在飞</text>
+<rect x="136" y="140" width="860" height="60" rx="3" fill="var(--a-col)" stroke="var(--a-col)" stroke-width="1.2" opacity="0.12"/>
+<text x="150" y="164" font-size="11" text-anchor="start" font-weight="600" font-family="IBM Plex Mono, monospace">这不是我们手写的 —— 是编译器自己在用「部分 gvmcnt 等待」做软件流水。</text>
+<text x="150" y="184" font-size="11" text-anchor="start" fill="var(--fg-dim)" font-family="IBM Plex Mono, monospace">上一篇我们手写 arrive_gvmcnt(n) 做多级流水时，用的就是同一个机制。</text></svg>
+    <figcaption>这不是我们手写的，是<strong>编译器自己在做软件流水</strong>：先只等掉最老的两条取数，拿到数据就开算，剩下两条继续飞。上一篇我们手写 <code>arrive_gvmcnt(n)</code> 做多级流水用的是同一个机制 —— 这也说明那个写法并不是什么偏门用法。</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>08</h2>
+  <h3>验证状态</h3>
+  <div class="tw"><table>
+    <thead><tr><th>结论</th><th>凭什么</th><th>状态</th></tr></thead>
+    <tbody>
+      <tr><td>指令形态与四个操作数</td><td><code>mxcc -cc1 -x ir -S</code> 出的汇编原文</td><td><strong>已验</strong></td></tr>
+      <tr><td><code>rD</code> 与 <code>rC</code> 合成同一组（原地累加）</td><td>同上，四条链式 MMA 的 <code>rD</code>/<code>rC</code> 恒为 <code>r10</code></td><td><strong>已验</strong></td></tr>
+      <tr><td>acc = 4 个普通向量寄存器</td><td>清零 / load / 原地累加 / 四个并存，四种写法的汇编</td><td><strong>已验</strong></td></tr>
+      <tr><td>依赖链之间无等待指令</td><td>汇编里四条 MMA 紧挨着</td><td><strong>已验</strong></td></tr>
+      <tr><td>MMA → 普通指令要垫 <code>snop</code></td><td>K=16 <code>snop 3</code>、K=32 <code>snop 5</code>，两边汇编都有</td><td><strong>已验</strong></td></tr>
+      <tr><td>K=32 操作数是 <code>int2</code></td><td>编译器对 <code>long</code> 报错；换 <code>int2</code> 后编过</td><td><strong>已验</strong></td></tr>
+      <tr><td>C600 kernel 的 MMA 条数砍半</td><td>xcore1500 下 512 条，K=16 同源是 1024 条</td><td><strong>已验</strong></td></tr>
+      <tr><td>K=16 路径真机数值正确</td><td>C500 实跑 <code>256³</code>/<code>1024³</code>，四个组合 0 不符</td><td><strong>已验</strong></td></tr>
+      <tr><td>K=32 的下标算术自检</td><td>K=32 二进制自己的 <code>banks</code>（纯 host，不启动 kernel）全过</td><td><strong>已验</strong></td></tr>
+      <tr><td>K=32 在 xcore1000 上装不下</td><td>实跑报 <code>ErrorNoBinaryForGpu</code>，连发射都没发射</td><td><strong>已验</strong></td></tr>
+      <tr><td>K=32 的片段 lane→元素映射、acc 布局</td><td>没有 C600，<code>banks</code> 验不到这一层</td><td>未知</td></tr>
+      <tr><td>C600 kernel 在 C600 上是否算得对</td><td>没有 C600</td><td>未知</td></tr>
+      <tr><td><code>snop N</code> 的 N 是不是严格的拍数</td><td>没有单独计时验证</td><td>未知</td></tr>
+      <tr><td>资源描述里 <code>mtreg_size</code> 的单位</td><td>TK=256/128/64 分别是 24/20/16，但单位没查出来</td><td>未知</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<footer>
+  <p>
+    探针源码：<code>mmaprobe.cu</code>（四种累加器用法）、<code>mma32.cu</code>（K=32 的签名与形态）。
+    取汇编：<code>asm.sh</code>，K=32 要加 <code>--offload-arch=xcore1500</code> 并把
+    <code>-target-cpu</code> 换成 <code>xcore1500</code>。
+    同一套办法扒异步搬运那条指令，见<strong>《BSM 异步拷贝的真身》</strong>。
+  </p>
+</footer>
+
+</div>
+</body>
+</html>
