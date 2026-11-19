@@ -31,6 +31,8 @@
 | [`docs/C500-int8-MMA-双缓冲.pdf`](docs/) | 同上，8 页 |
 | [`docs/C500-int8-MMA-acc与写回.html`](docs/) | **acc 在哪，第四步要不要等**，6 张图。acc 是私有寄存器但指令是 wave 级集体操作；一条 MMA 只跨 16 个 k，终值要 16 条累加；写回前为什么不要 barrier |
 | [`docs/C500-int8-MMA-acc与写回.pdf`](docs/) | 同上，12 页 |
+| [`docs/C600U-GEMM流水排布分析.html`](docs/) | **C600U 流水排布**，7 节。LDG 与 MMA 的时间排布、LDS→MMA 的组织差异、同步与 buffer 交接。所有指令级数字取自真汇编 |
+| [`docs/C600U-GEMM流水排布分析.pdf`](docs/) | 同上，23 页 |
 
 HTML 是自包含的（SVG 内联、样式内联），只有字体走 Google Fonts CDN，离线打开会回落到系统字体。
 浏览器里 Ctrl+P 就能印出与仓库里 PDF 一致的版面。
@@ -219,6 +221,61 @@ mxcc -x maca -O3 -std=c++17 --offload-arch=xcore1500 -DMX_ARCH=600 \
 **仍然没验的**：K=32 从没在 C600 上跑过（这台 xcore1000 装不下那个二进制，
 报 `ErrorNoBinaryForGpu`，连发射都没发射）。**片段的 lane→元素映射、累加器布局
 仍然是推的** —— 这两件事只有真卡能判。
+
+## C600U 流水排布（`mma_swizzle_256_k128_db_ldg4.cu`，汇编逐条核过）
+
+上面那支 `mma_swizzle_c600.cu` 是「把 C500 的布局原样搬到 K=32」。这一节是
+下一步：**为 C600U 重排流水**，并且第一次把结论建立在**真汇编**上而不是 IR。
+
+> **这两支 kernel 的源码不在本仓库**：`mma_swizzle_256_k128_db_ldg4.cu`（本节主角）和
+> `gemm_kernal_v6.3.cu`（第 5 节的对比对象）都留在本地。本分支只收文档和取汇编的脚本，
+> 文档本身是自包含的 —— 关键代码片段都抄在正文里。
+
+### 怎么拿到真汇编
+
+驱动层把 `-S` 挡住了（`mxcc -S` 报 unknown argument），但 `mxcc -cc1` 本身就是
+clang，cc1 接受 `-x ir` —— 它就是个现成的 `llc`。脚本 `asm2.sh`：
+
+```bash
+./asm2.sh mma_swizzle_256_k128_db_ldg4.cu xcore1600 a_base
+./an2.sh  a_base mma_256     # 主循环发射时间线 + 每个基本块的统计
+./res.sh  a_base             # MTReg / STReg / MaxWarpsPerPEU / codeLen
+```
+
+换 arch 要同时改三处：`--offload-arch`、bundler 的 `--targets`、cc1 的 `-target-cpu`。
+**这台 C500 能为 xcore1600 交叉编译**，所以指令层结论不用等真机，只是拿不到周期数。
+
+### 汇编说了什么
+
+| | `mma_swizzle_256` C500 | `mma_swizzle_c600` K=32 直接移植 | `..._k128_db_ldg4` |
+|---|---|---|---|
+| 主循环总指令 | 460 | 388 | **250** |
+| MMA 条数 | 256 | 128 | 128 |
+| **MMA 占发射槽** | 55.7% | **33.0%** | **51.2%** |
+| `snop` 停顿 | 24 拍 | 34 拍 | **4 拍** |
+| barrier / 128-k | 2 | 2 | **1** |
+| **MaxWarpsPerPEU** | **3** | 2 | **2** |
+
+第二列是警告：**把 C500 的布局原样搬到 K=32，MMA 在发射槽里的占比从 56% 掉到 33%** ——
+MMA 条数砍半而 LDS 读、搬运、地址计算一条没少。第三列靠把 wave tile 从 4×4 改成
+8×4 把它拉回 51.2%。
+
+其它几条：
+
+- **四块 LDG 的穿插是有效的**：发射点落在 mma#0 / 8 / 16 / 24，没被编译器沉底。
+  但把 `LDG4_LDS_M_GROUP` 改成 0（整段预读），六条会掉到 **mma#128**，
+  也就是最后一条 MMA 之后 —— 重叠完全归零。**别改这个开关。**
+- **编译器自动插的 `arrive bsmcnt(N)` 比你写的同步多得多**：主循环 23 条 arrive
+  里只有 1 条是我们写的，其余 22 条防的是 LDS 读到 MMA 的数据冒险。
+- **异步搬运在指令数上不赚**（460 vs 同步 453）：每条 BSM 要配 `rfl_b32` +
+  `smov_b32 md` + `sadd_co_u32 md`。它赚的是不占寄存器中转，占用率 2→3。
+- **`mma_pipe<256, 晚发射>` 真的溢出**：`.private_memory_size: 12`，代码里有
+  2 条 `stp_b32` + 2 条 `ldp_b32`。那 1.20× 是带着溢出跑出来的。
+
+### 还没做的
+
+**C600U 上一次都没跑过。** 上机清单、以及 8 KiB 窗口级交接（`gemm_kernal_v6.3.cu`
+的做法）与当前整缓冲交接的对比，都在文档第 5、7 节。
 
 ## 验证状态
 
